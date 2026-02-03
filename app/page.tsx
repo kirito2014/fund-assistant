@@ -1,4 +1,5 @@
 import React from "react";
+import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
 import { BottomNav } from "@/components/BottomNav";
@@ -117,10 +118,10 @@ export default function Home() {
                 <h4 className="text-gain-red text-4xl font-bold">1,280.50</h4>
                 <span className="text-gain-red font-bold text-lg">+1.82%</span>
               </div>
-              <button className="mt-4 flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl text-sm font-bold w-fit shadow-lg shadow-primary/20">
+              <Link href="/portfolio" className="mt-4 flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl text-sm font-bold w-fit shadow-lg shadow-primary/20">
                 <span>收益详情</span>
                 <Icon name="chevron_right" className="text-sm" />
-              </button>
+              </Link>
             </div>
             <div className="z-10 bg-white/5 p-4 rounded-3xl backdrop-blur-md border border-white/10">
               <span aria-label="Happy Emoji" className="text-6xl" role="img">
