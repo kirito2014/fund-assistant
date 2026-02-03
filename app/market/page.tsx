@@ -16,9 +16,8 @@ export default function MarketPage() {
     <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[430px] mx-auto overflow-x-hidden shadow-2xl bg-background-light dark:bg-background-dark font-display text-white">
       {/* TopAppBar */}
       <header className="sticky top-0 z-50 flex items-center bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md p-4 pb-2 justify-between border-b border-white/10">
-        <Link href="/" className="text-white flex size-12 shrink-0 items-center cursor-pointer">
-          <Icon name="chevron_left" />
-        </Link>
+        <div className="flex w-12 items-center justify-start">
+        </div>
         <h2 className="text-white text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">
           大盘行情分布
         </h2>

@@ -2,15 +2,15 @@ import React from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
 import Link from "next/link";
+import { BottomNav } from "@/components/BottomNav";
 
 export default function ProfilePage() {
   return (
-    <div className="relative flex h-auto min-h-screen w-full flex-col max-w-md mx-auto overflow-x-hidden pb-10 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-white">
+    <div className="relative flex h-auto min-h-screen w-full flex-col max-w-md mx-auto overflow-x-hidden pb-24 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-white">
       {/* TopAppBar */}
       <div className="sticky top-0 z-50 flex items-center bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md p-4 pb-2 justify-between">
-        <Link href="/" className="text-slate-900 dark:text-white flex size-12 shrink-0 items-center justify-start cursor-pointer">
-          <Icon name="arrow_back_ios" />
-        </Link>
+        <div className="flex w-12 items-center justify-start">
+        </div>
         <h2 className="text-slate-900 dark:text-white text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">
           个人中心
         </h2>
@@ -224,6 +224,7 @@ export default function ProfilePage() {
           FundValuation Assistant v2.4.0
         </p>
       </div>
+      <BottomNav />
     </div>
   );
 }

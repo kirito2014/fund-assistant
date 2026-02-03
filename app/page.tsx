@@ -9,12 +9,19 @@ export default function Home() {
     <main className="min-h-screen pb-24 relative overflow-hidden">
       {/* Top Navigation Bar */}
       <div className="sticky top-0 z-50 glass-header">
-        <div className="flex items-center p-4 justify-center max-w-md mx-auto">
+        <div className="flex items-center p-4 justify-between max-w-md mx-auto">
+          <div className="flex size-10 items-center justify-start">
+          </div>
           <div className="flex flex-col items-center">
             <h2 className="text-white text-lg font-bold leading-tight tracking-tight">
               基金估值助手
             </h2>
             <p className="text-[10px] text-slate-400">最后更新 14:30:05</p>
+          </div>
+          <div className="flex size-10 items-center justify-end">
+            <button className="flex items-center justify-center text-white">
+              <Icon name="refresh" />
+            </button>
           </div>
         </div>
       </div>
@@ -111,6 +118,9 @@ export default function Home() {
                 </span>
                 <span className="text-white font-bold px-2 py-0.5 rounded-full bg-primary/30 text-[10px]">
                   大喜
+                </span>
+                <span className="text-green-400 font-bold px-2 py-0.5 rounded-full bg-green-400/20 text-[10px]">
+                  开市中
                 </span>
               </div>
               <p className="text-slate-400 text-sm">今日预计收益</p>

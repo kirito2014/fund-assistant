@@ -14,20 +14,23 @@ export default function PortfolioPage() {
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden pb-24 bg-background-light dark:bg-background-dark text-white">
       {/* Top App Bar */}
-      <div className="sticky top-0 z-50 ios-blur bg-background-dark/80 px-4 py-4 flex items-center justify-between border-b border-white/5">
-        <div className="flex items-center gap-2">
-          <Icon name="account_balance_wallet" className="text-primary text-2xl" />
-          <h1 className="text-white text-xl font-bold tracking-tight">
-            持仓管理
-          </h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <button className="text-white/70 hover:text-white transition-colors">
-            <Icon name="swap_vert" />
-          </button>
-          <button className="text-white/70 hover:text-white transition-colors">
-            <Icon name="filter_list" />
-          </button>
+      <div className="sticky top-0 z-50 glass-header">
+        <div className="flex items-center p-4 justify-between max-w-md mx-auto">
+          <div className="flex size-10 items-center justify-start">
+          </div>
+          <div className="flex flex-col items-center">
+            <h1 className="text-white text-lg font-bold leading-tight tracking-tight">
+              持仓管理
+            </h1>
+          </div>
+          <div className="flex size-10 items-center justify-end gap-2">
+            <button className="text-white/70 hover:text-white transition-colors">
+              <Icon name="swap_vert" />
+            </button>
+            <button className="text-white/70 hover:text-white transition-colors">
+              <Icon name="filter_list" />
+            </button>
+          </div>
         </div>
       </div>
 
