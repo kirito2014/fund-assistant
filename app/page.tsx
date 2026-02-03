@@ -1,32 +1,63 @@
-import React from "react";
+'use client';
+
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
 import { BottomNav } from "@/components/BottomNav";
 
 export default function Home() {
+  const [marketStatus, setMarketStatus] = useState({
+    status: '加载中',
+    statusColor: 'orange'
+  });
+
+  useEffect(() => {
+    // 获取市场状态
+    const fetchMarketStatus = async () => {
+      try {
+        const response = await fetch('/api/market-status');
+        if (response.ok) {
+          const data = await response.json();
+          setMarketStatus({
+            status: data.status,
+            statusColor: data.statusColor
+          });
+        }
+      } catch (error) {
+        console.error('获取市场状态失败:', error);
+      }
+    };
+
+    // 初始加载
+    fetchMarketStatus();
+
+    // 每分钟更新一次
+    const interval = setInterval(fetchMarketStatus, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <main className="min-h-screen pb-24 relative overflow-hidden">
+    <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[430px] mx-auto overflow-x-hidden shadow-2xl bg-background-light dark:bg-background-dark font-display text-white">
       {/* Top Navigation Bar */}
-      <div className="sticky top-0 z-50 glass-header">
-        <div className="flex items-center p-4 justify-between max-w-md mx-auto">
-          <div className="flex size-10 items-center justify-start">
-          </div>
-          <div className="flex flex-col items-center">
-            <h2 className="text-white text-lg font-bold leading-tight tracking-tight">
-              基金估值助手
-            </h2>
-            <p className="text-[10px] text-slate-400">最后更新 14:30:05</p>
-          </div>
-          <div className="flex size-10 items-center justify-end">
-            <button className="flex items-center justify-center text-white">
-              <Icon name="refresh" />
-            </button>
-          </div>
+      <div className="sticky top-0 z-50 flex items-center bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md p-4 pb-2 justify-between border-b border-white/10">
+        <div className="flex w-12 items-center justify-start">
+        </div>
+        <div className="flex flex-col items-center flex-1">
+          <h2 className="text-white text-lg font-bold leading-tight tracking-tight">
+            基金估值助手
+          </h2>
+          <p className="text-[10px] text-slate-400">最后更新 14:30:05</p>
+        </div>
+        <div className="flex w-12 items-center justify-end">
+          <button className="flex items-center justify-center text-white">
+            <Icon name="refresh" />
+          </button>
         </div>
       </div>
 
-      <div className="max-w-md mx-auto">
+      <main className="flex-1 pb-24">
         {/* Index Valuation Grid Section */}
         <div className="px-4 pt-6">
           <div className="flex items-center justify-between mb-4">
@@ -119,8 +150,14 @@ export default function Home() {
                 <span className="text-white font-bold px-2 py-0.5 rounded-full bg-primary/30 text-[10px]">
                   大喜
                 </span>
-                <span className="text-green-400 font-bold px-2 py-0.5 rounded-full bg-green-400/20 text-[10px]">
-                  开市中
+                <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] border ${
+                  marketStatus.statusColor === 'green' 
+                    ? 'text-green-400 bg-green-400/20 border-green-400/40' 
+                    : marketStatus.statusColor === 'red'
+                    ? 'text-red-400 bg-red-400/20 border-red-400/40'
+                    : 'text-orange-400 bg-orange-400/20 border-orange-400/40'
+                }`}>
+                  {marketStatus.status}
                 </span>
               </div>
               <p className="text-slate-400 text-sm">今日预计收益</p>
@@ -224,8 +261,8 @@ export default function Home() {
             查看完整 Top 10 榜单
           </button>
         </div>
-      </div>
+      </main>
       <BottomNav />
-    </main>
+    </div>
   );
 }

@@ -1,3 +1,5 @@
+'use client';
+
 import React from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
@@ -55,46 +57,47 @@ export default function FundsPage() {
   ];
 
   return (
-    <div className="min-h-screen pb-32 bg-mesh text-white">
+    <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[430px] mx-auto overflow-x-hidden shadow-2xl bg-background-light dark:bg-background-dark font-display text-white">
       {/* Top App Bar */}
-      <div className="sticky top-0 glass-header border-b border-white/5">
-        <div className="flex items-center p-4 pb-2 justify-between max-w-md mx-auto">
+      <header className="sticky top-0 z-50 flex items-center bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md p-4 pb-2 justify-between border-b border-white/10">
+        <div className="flex w-12 items-center justify-start">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-white/10 transition-colors cursor-pointer">
             <Icon name="search" className="text-white" />
           </div>
-          <h2 className="text-white text-lg font-bold leading-tight tracking-tight flex-1 text-center">
-            自选基金
-          </h2>
-          <div className="flex w-10 items-center justify-end">
-            <button className="flex size-10 cursor-pointer items-center justify-center overflow-hidden rounded-full hover:bg-white/10 transition-colors text-white">
-              <Icon name="add" />
-            </button>
-          </div>
         </div>
-        {/* Tabs */}
-        <div className="px-4 max-w-md mx-auto">
-          <div className="flex gap-6 overflow-x-auto no-scrollbar">
-            {["全部", "指数", "行业", "QDII", "混合型"].map((tab, i) => (
-              <a
-                key={tab}
-                className={`flex flex-col items-center justify-center border-b-2 pb-3 pt-4 shrink-0 transition-colors ${
-                  i === 0
-                    ? "border-primary text-white"
-                    : "border-transparent text-slate-400 hover:text-white"
-                }`}
-                href="#"
-              >
-                <p className={`text-sm ${i === 0 ? "font-bold" : "font-medium"}`}>
-                  {tab}
-                </p>
-              </a>
-            ))}
-          </div>
+        <h2 className="text-white text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">
+          自选基金
+        </h2>
+        <div className="flex w-12 items-center justify-end">
+          <button className="flex size-10 cursor-pointer items-center justify-center overflow-hidden rounded-full hover:bg-white/10 transition-colors text-white">
+            <Icon name="add" />
+          </button>
+        </div>
+      </header>
+      
+      {/* Tabs */}
+      <div className="px-4 border-b border-white/5">
+        <div className="flex gap-6 overflow-x-auto no-scrollbar">
+          {["全部", "指数", "行业", "QDII", "混合型"].map((tab, i) => (
+            <a
+              key={tab}
+              className={`flex flex-col items-center justify-center border-b-2 pb-3 pt-4 shrink-0 transition-colors ${
+                i === 0
+                  ? "border-primary text-white"
+                  : "border-transparent text-slate-400 hover:text-white"
+              }`}
+              href="#"
+            >
+              <p className={`text-sm ${i === 0 ? "font-bold" : "font-medium"}`}>
+                {tab}
+              </p>
+            </a>
+          ))}
         </div>
       </div>
 
       {/* Main Content */}
-      <main className="max-w-md mx-auto p-4 space-y-3">
+      <main className="flex-1 pb-24 p-4 space-y-3">
         {/* Market Summary Card */}
         <GlassCard className="rounded-xl p-4 flex justify-between items-center mb-6" variant="light">
           <div>
@@ -173,10 +176,6 @@ export default function FundsPage() {
       </main>
 
       <BottomNav items={navItems} />
-
-      {/* Floating Background Blur Elements */}
-      <div className="fixed top-20 right-[-10%] w-64 h-64 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10"></div>
-      <div className="fixed bottom-20 left-[-10%] w-64 h-64 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10"></div>
     </div>
   );
 }

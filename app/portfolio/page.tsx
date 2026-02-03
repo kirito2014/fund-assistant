@@ -1,3 +1,5 @@
+'use client';
+
 import React from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
@@ -12,30 +14,27 @@ export default function PortfolioPage() {
   ];
 
   return (
-    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden pb-24 bg-background-light dark:bg-background-dark text-white">
+    <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[430px] mx-auto overflow-x-hidden shadow-2xl bg-background-light dark:bg-background-dark font-display text-white">
       {/* Top App Bar */}
-      <div className="sticky top-0 z-50 glass-header">
-        <div className="flex items-center p-4 justify-between max-w-md mx-auto">
-          <div className="flex size-10 items-center justify-start">
-          </div>
-          <div className="flex flex-col items-center">
-            <h1 className="text-white text-lg font-bold leading-tight tracking-tight">
-              持仓管理
-            </h1>
-          </div>
-          <div className="flex size-10 items-center justify-end gap-2">
-            <button className="text-white/70 hover:text-white transition-colors">
-              <Icon name="swap_vert" />
-            </button>
-            <button className="text-white/70 hover:text-white transition-colors">
-              <Icon name="filter_list" />
-            </button>
-          </div>
+      <header className="sticky top-0 z-50 flex items-center bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md p-4 pb-2 justify-between border-b border-white/10">
+        <div className="flex w-12 items-center justify-start">
         </div>
-      </div>
+        <h1 className="text-white text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">
+          持仓管理
+        </h1>
+        <div className="flex w-12 items-center justify-end gap-2">
+          <button className="text-white/70 hover:text-white transition-colors">
+            <Icon name="swap_vert" />
+          </button>
+          <button className="text-white/70 hover:text-white transition-colors">
+            <Icon name="filter_list" />
+          </button>
+        </div>
+      </header>
 
-      {/* Search Bar */}
-      <div className="px-4 py-3">
+      <main className="flex-1 pb-24">
+        {/* Search Bar */}
+        <div className="px-4 py-3">
         <label className="flex flex-col h-11 w-full">
           <div className="flex w-full flex-1 items-stretch rounded-xl h-full bg-[#1e2738]/80 border border-white/5">
             <div className="text-[#92a4c9] flex items-center justify-center pl-4">
@@ -241,6 +240,7 @@ export default function PortfolioPage() {
           </GlassCard>
         </div>
       </div>
+      </main>
 
       <BottomNav items={navItems} />
     </div>
