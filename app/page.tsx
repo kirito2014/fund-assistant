@@ -8,20 +8,12 @@ export default function Home() {
     <main className="min-h-screen pb-24 relative overflow-hidden">
       {/* Top Navigation Bar */}
       <div className="sticky top-0 z-50 glass-header">
-        <div className="flex items-center p-4 justify-between max-w-md mx-auto">
-          <div className="text-white flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/20">
-            <Icon name="person" />
-          </div>
+        <div className="flex items-center p-4 justify-center max-w-md mx-auto">
           <div className="flex flex-col items-center">
             <h2 className="text-white text-lg font-bold leading-tight tracking-tight">
-              首页估值助手
+              基金估值助手
             </h2>
             <p className="text-[10px] text-slate-400">最后更新 14:30:05</p>
-          </div>
-          <div className="flex size-10 items-center justify-end">
-            <button className="flex items-center justify-center text-white">
-              <Icon name="notifications" />
-            </button>
           </div>
         </div>
       </div>
