@@ -1,16 +1,187 @@
-import React from "react";
+'use client';
+
+import React, { useState, useEffect } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
 import { BottomNav } from "@/components/BottomNav";
 import Link from "next/link";
 
+// 市场指数类型定义
+interface MarketIndex {
+  code: string;
+  name: string;
+  val: string;
+  change: string;
+  isUp: boolean;
+  status: string;
+  statusColor: string;
+}
+
+// 扩展市场指数类型，用于API数据
+interface ApiMarketIndex {
+  code: string;
+  name: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  valuation: number;
+  valuationLevel: string;
+  valuationColor: string;
+}
+
 export default function MarketPage() {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [clientTime, setClientTime] = useState<string>('');
+
+  // 客户端渲染时设置时间
+  useEffect(() => {
+    setClientTime(lastUpdated.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  }, [lastUpdated]);
+  
   const navItems = [
     { label: "行情", icon: "dashboard", href: "/market", isActive: true },
     { label: "估值", icon: "analytics", href: "/" },
     { label: "资产", icon: "account_balance_wallet", href: "/portfolio" },
     { label: "我的", icon: "person", href: "/profile" },
   ];
+  
+  // 获取市场指数数据
+  const fetchMarketData = async () => {
+    try {
+      setLoading(true);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      
+      // 调用现有的市场估值API获取真实数据（包括国际市场）
+      const response = await fetch('/api/market-valuation', {
+        signal: controller.signal,
+        cache: 'no-cache'
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const data: ApiMarketIndex[] = await response.json();
+        
+        // 转换API数据格式为前端需要的格式
+        const formattedData: MarketIndex[] = data.map(item => ({
+          code: item.code,
+          name: item.name,
+          val: item.price.toLocaleString(),
+          change: `${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toFixed(2)}%`,
+          isUp: item.changePercent >= 0,
+          status: item.valuationLevel,
+          statusColor: `text-${item.valuationColor} bg-${item.valuationColor === 'loss-green' ? 'green' : item.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/20`
+        }));
+        
+        // 直接使用API返回的所有数据（包括国际市场）
+        setMarketIndices(formattedData);
+        setLastUpdated(new Date());
+      }
+    } catch (error) {
+      console.error('获取市场数据失败:', error);
+      // 错误时使用模拟数据
+      useMockData();
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // 使用模拟数据
+  const useMockData = () => {
+    const mockData: MarketIndex[] = [
+      {
+        code: "sh000001",
+        name: "上证指数",
+        val: "3050.12",
+        change: "+0.45%",
+        isUp: true,
+        status: "高估",
+        statusColor: "text-gain-red bg-gain-red/20",
+      },
+      {
+        code: "sz399001",
+        name: "深证成指",
+        val: "10020.45",
+        change: "-0.12%",
+        isUp: false,
+        status: "适中",
+        statusColor: "text-primary bg-primary/20",
+      },
+      {
+        code: "sz399006",
+        name: "创业板指",
+        val: "1850.32",
+        change: "+1.20%",
+        isUp: true,
+        status: "极低",
+        statusColor: "text-loss-green bg-loss-green/20",
+      },
+      {
+        code: "sh000300",
+        name: "沪深300",
+        val: "3540.10",
+        change: "+0.30%",
+        isUp: true,
+        status: "适中",
+        statusColor: "text-primary bg-primary/20",
+      },
+      {
+        code: "nasdaq",
+        name: "纳斯达克",
+        val: "14823.45",
+        change: "+0.85%",
+        isUp: true,
+        status: "适中",
+        statusColor: "text-primary bg-primary/20",
+      },
+      {
+        code: "dowjones",
+        name: "道琼斯",
+        val: "37245.10",
+        change: "+0.32%",
+        isUp: true,
+        status: "高估",
+        statusColor: "text-gain-red bg-gain-red/20",
+      },
+      {
+        code: "sp500",
+        name: "标普500",
+        val: "4856.78",
+        change: "+0.58%",
+        isUp: true,
+        status: "适中",
+        statusColor: "text-primary bg-primary/20",
+      },
+      {
+        code: "hangseng",
+        name: "恒生指数",
+        val: "16825.30",
+        change: "-0.65%",
+        isUp: false,
+        status: "极低",
+        statusColor: "text-loss-green bg-loss-green/20",
+      },
+    ];
+    setMarketIndices(mockData);
+    setLastUpdated(new Date());
+  };
+  
+  // 刷新数据
+  const handleRefresh = async () => {
+    await fetchMarketData();
+  };
+  
+  useEffect(() => {
+    // 初始加载数据
+    fetchMarketData();
+  }, []);
+  
+  // 根据展开状态过滤显示的指数
+  const displayIndices = isExpanded ? marketIndices : marketIndices.slice(0, 4);
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[430px] mx-auto overflow-x-hidden shadow-2xl bg-background-light dark:bg-background-dark font-display text-white">
@@ -18,12 +189,24 @@ export default function MarketPage() {
       <header className="sticky top-0 z-50 flex items-center bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md p-4 pb-2 justify-between border-b border-white/10">
         <div className="flex w-12 items-center justify-start">
         </div>
-        <h2 className="text-white text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">
-          大盘行情分布
-        </h2>
+        <div className="flex flex-col items-center flex-1">
+          <h2 className="text-white text-lg font-bold leading-tight tracking-[-0.015em]">
+            大盘行情分布
+          </h2>
+          <p className="text-[10px] text-slate-400">
+            最后更新 {clientTime}
+          </p>
+        </div>
         <div className="flex w-12 items-center justify-end">
-          <button className="flex max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-xl h-12 bg-transparent text-white gap-2 text-base font-bold leading-normal tracking-[0.015em] min-w-0 p-0">
-            <Icon name="refresh" />
+          <button 
+            className="flex items-center justify-center text-white hover:opacity-80 transition-opacity"
+            onClick={handleRefresh}
+            disabled={loading}
+          >
+            <Icon 
+              name="refresh" 
+              className={`${loading ? 'animate-spin' : ''}`}
+            />
           </button>
         </div>
       </header>
@@ -32,64 +215,75 @@ export default function MarketPage() {
         {/* Market Indices Grid */}
         <section className="p-4">
           <div className="grid grid-cols-2 gap-3">
-            {[
-              {
-                name: "上证指数",
-                val: "3050.12",
-                change: "+0.45%",
-                isUp: true,
-                status: "高估",
-                statusColor: "text-gain-red bg-gain-red/20",
-              },
-              {
-                name: "深证成指",
-                val: "10020.45",
-                change: "-0.12%",
-                isUp: false,
-                status: "适中",
-                statusColor: "text-primary bg-primary/20",
-              },
-              {
-                name: "创业板指",
-                val: "1850.32",
-                change: "+1.20%",
-                isUp: true,
-                status: "极低",
-                statusColor: "text-loss-green bg-loss-green/20",
-              },
-              {
-                name: "沪深300",
-                val: "3540.10",
-                change: "+0.30%",
-                isUp: true,
-                status: "适中",
-                statusColor: "text-primary bg-primary/20",
-              },
-            ].map((item, i) => (
-              <GlassCard key={i} className="p-4 rounded-xl flex flex-col gap-2">
-                <div className="flex justify-between items-start">
-                  <p className="text-white/70 text-sm font-medium">{item.name}</p>
-                  <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${item.statusColor}`}
+            {loading ? (
+              // 加载状态
+              Array.from({ length: 4 }).map((_, index) => (
+                <GlassCard key={index} className="p-4 rounded-xl flex flex-col gap-2">
+                  <div className="flex justify-between items-start">
+                    <p className="text-white/70 text-sm font-medium">加载中...</p>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded uppercase font-bold bg-slate-700/20 text-slate-400">
+                      加载中
+                    </span>
+                  </div>
+                  <p className="text-white text-2xl font-bold">--</p>
+                  <p className="text-sm font-semibold text-slate-400">
+                    -- <Icon name="trending_up" className="text-xs align-middle" />
+                  </p>
+                </GlassCard>
+              ))
+            ) : displayIndices.length > 0 ? (
+              // 数据加载完成
+              displayIndices.map((item) => (
+                <GlassCard key={item.code} className="p-4 rounded-xl flex flex-col gap-2">
+                  <div className="flex justify-between items-start">
+                    <p className="text-white/70 text-sm font-medium">{item.name}</p>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${item.statusColor}`}
+                    >
+                      {item.status}
+                    </span>
+                  </div>
+                  <p className="text-white text-2xl font-bold">{item.val}</p>
+                  <p
+                    className={`text-sm font-semibold ${
+                      item.isUp ? "text-gain-red" : "text-loss-green"
+                    }`}
                   >
-                    {item.status}
-                  </span>
-                </div>
-                <p className="text-white text-2xl font-bold">{item.val}</p>
-                <p
-                  className={`text-sm font-semibold ${
-                    item.isUp ? "text-gain-red" : "text-loss-green"
-                  }`}
-                >
-                  {item.change}{" "}
-                  <Icon
-                    name={item.isUp ? "trending_up" : "trending_down"}
-                    className="text-xs align-middle"
-                  />
-                </p>
-              </GlassCard>
-            ))}
+                    {item.change}{" "}
+                    <Icon
+                      name={item.isUp ? "trending_up" : "trending_down"}
+                      className="text-xs align-middle"
+                    />
+                  </p>
+                </GlassCard>
+              ))
+            ) : (
+              // 无数据状态
+              Array.from({ length: 4 }).map((_, index) => (
+                <GlassCard key={index} className="p-4 rounded-xl flex flex-col gap-2">
+                  <div className="flex justify-between items-start">
+                    <p className="text-white/70 text-sm font-medium">暂无数据</p>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded uppercase font-bold bg-slate-700/20 text-slate-400">
+                      --
+                    </span>
+                  </div>
+                  <p className="text-white text-2xl font-bold">--</p>
+                  <p className="text-sm font-semibold text-slate-400">
+                    -- <Icon name="trending_up" className="text-xs align-middle" />
+                  </p>
+                </GlassCard>
+              ))
+            )}
           </div>
+          
+          {/* Expand/Collapse Button */}
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="w-full flex items-center justify-center gap-2 py-3 mt-2 text-sm font-medium text-primary"
+          >
+            <span>{isExpanded ? "收起" : "展开"}更多市场</span>
+            <Icon name={isExpanded ? "expand_less" : "expand_more"} className="text-xs" />
+          </button>
         </section>
 
         {/* Chart Distribution Section */}

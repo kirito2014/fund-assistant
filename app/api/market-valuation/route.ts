@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { spawn } from 'child_process';
+import { promisify } from 'util';
+import { createReadStream, createWriteStream } from 'fs';
+import { pipeline } from 'stream';
+
+const pipelineAsync = promisify(pipeline);
 
 // 市场指数类型定义
 export interface MarketIndex {
@@ -19,6 +25,136 @@ const INDEX_CODES = {
   'sz399001': '深证成指',
   'sz399006': '创业板指'
 };
+
+// 国际市场指数代码映射（使用东方财富的国际指数代码）
+const INTERNATIONAL_INDEX_CODES = {
+  'nasdaq': '纳斯达克',
+  'dowjones': '道琼斯',
+  'sp500': '标普500',
+  'hangseng': '恒生指数'
+};
+
+// 获取国际市场指数数据（使用Python脚本）
+async function fetchInternationalMarketData(): Promise<MarketIndex[]> {
+  try {
+    // 执行Python脚本获取市场数据
+    const allData = await executePythonScript();
+    // 过滤出国际市场数据
+    const internationalIndices = allData.filter(item => 
+      ['nasdaq', 'dowjones', 'sp500', 'hangseng'].includes(item.code)
+    );
+    // 确保返回的数据包含正确的中文名称和估值水平
+    return internationalIndices.map(item => {
+      // 使用getValuationLevel函数计算正确的估值水平，避免使用Python脚本中可能编码错误的估值水平
+      const { level, color } = getValuationLevel(item.valuation);
+      return {
+        ...item,
+        name: INTERNATIONAL_INDEX_CODES[item.code as keyof typeof INTERNATIONAL_INDEX_CODES] || item.name,
+        valuationLevel: level,
+        valuationColor: color
+      };
+    });
+  } catch (error) {
+    console.error('Error fetching international market data:', error);
+    // 错误时返回模拟数据
+    const mockInternationalData: MarketIndex[] = [
+      {
+        code: 'nasdaq',
+        name: '纳斯达克',
+        price: 14823.45,
+        change: 124.65,
+        changePercent: 0.85,
+        valuation: 55,
+        valuationLevel: '正常',
+        valuationColor: 'yellow-400'
+      },
+      {
+        code: 'dowjones',
+        name: '道琼斯',
+        price: 37245.10,
+        change: 118.45,
+        changePercent: 0.32,
+        valuation: 75,
+        valuationLevel: '高估',
+        valuationColor: 'gain-red'
+      },
+      {
+        code: 'sp500',
+        name: '标普500',
+        price: 4856.78,
+        change: 28.05,
+        changePercent: 0.58,
+        valuation: 60,
+        valuationLevel: '正常',
+        valuationColor: 'yellow-400'
+      },
+      {
+        code: 'hangseng',
+        name: '恒生指数',
+        price: 16825.30,
+        change: -110.25,
+        changePercent: -0.65,
+        valuation: 25,
+        valuationLevel: '低估',
+        valuationColor: 'loss-green'
+      }
+    ];
+    return mockInternationalData;
+  }
+}
+
+// 执行Python脚本获取市场数据
+async function executePythonScript(): Promise<MarketIndex[]> {
+  return new Promise((resolve, reject) => {
+    let pythonProcess: any;
+    // 设置Python进程的超时时间
+    const timeoutId = setTimeout(() => {
+      reject(new Error('Python脚本执行超时'));
+      if (pythonProcess) {
+        pythonProcess.kill();
+      }
+    }, 15000);
+
+    pythonProcess = spawn('python', ['market_data.py'], {
+      cwd: process.cwd(),
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    let output = '';
+    let errorOutput = '';
+
+    pythonProcess.stdout.on('data', (data: Buffer) => {
+      output += data.toString('utf8');
+    });
+
+    pythonProcess.stderr.on('data', (data: Buffer) => {
+      errorOutput += data.toString();
+    });
+
+    pythonProcess.on('close', (code: number) => {
+      clearTimeout(timeoutId);
+      if (code === 0) {
+        try {
+          const data = JSON.parse(output);
+          resolve(data);
+        } catch (error: any) {
+          console.error('解析Python脚本输出失败:', error);
+          console.error('Python脚本输出:', output);
+          reject(new Error('解析Python脚本输出失败'));
+        }
+      } else {
+        console.error('Python脚本执行失败:', errorOutput);
+        reject(new Error(`Python脚本执行失败: ${errorOutput}`));
+      }
+    });
+
+    pythonProcess.on('error', (error: Error) => {
+      clearTimeout(timeoutId);
+      console.error('启动Python进程失败:', error);
+      reject(new Error(`启动Python进程失败: ${error.message}`));
+    });
+  });
+}
 
 // 获取市场指数估值数据
 export async function GET(request: NextRequest) {
@@ -41,11 +177,14 @@ export async function GET(request: NextRequest) {
       throw new Error('Failed to fetch market data');
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     
     // 处理数据
+    const indices: MarketIndex[] = [];
+    
+    // 处理国内市场数据
     if (data.data && data.data.diff) {
-      const indices: MarketIndex[] = data.data.diff.map((item: any) => {
+      const domesticIndices = data.data.diff.map((item: { f12: string; f13: number; f14: string; f2: number; f4: number; f3: number }) => {
         const code = item.f12;
         const fullCode = item.f13 === 1 ? `sh${code}` : `sz${code}`;
         const name = INDEX_CODES[fullCode as keyof typeof INDEX_CODES] || item.f14;
@@ -73,15 +212,63 @@ export async function GET(request: NextRequest) {
           valuationColor: color
         };
       });
-
-      return NextResponse.json(indices);
+      
+      indices.push(...domesticIndices);
     }
+    
+    // 获取国际市场数据（使用Python脚本）
+    const internationalIndices = await fetchInternationalMarketData();
+    indices.push(...internationalIndices);
 
-    return NextResponse.json([]);
+    return NextResponse.json(indices);
   } catch (error) {
     console.error('Error getting market valuation:', error);
-    // 错误时返回模拟数据
-    return NextResponse.json(getMockIndices());
+    // 错误时返回模拟数据，包括国际市场数据
+    const mockIndices = getMockIndices();
+    const mockInternationalData: MarketIndex[] = [
+      {
+        code: 'nasdaq',
+        name: '纳斯达克',
+        price: 14823.45,
+        change: 124.65,
+        changePercent: 0.85,
+        valuation: 55,
+        valuationLevel: '正常',
+        valuationColor: 'yellow-400'
+      },
+      {
+        code: 'dowjones',
+        name: '道琼斯',
+        price: 37245.10,
+        change: 118.45,
+        changePercent: 0.32,
+        valuation: 75,
+        valuationLevel: '高估',
+        valuationColor: 'gain-red'
+      },
+      {
+        code: 'sp500',
+        name: '标普500',
+        price: 4856.78,
+        change: 28.05,
+        changePercent: 0.58,
+        valuation: 60,
+        valuationLevel: '正常',
+        valuationColor: 'yellow-400'
+      },
+      {
+        code: 'hangseng',
+        name: '恒生指数',
+        price: 16825.30,
+        change: -110.25,
+        changePercent: -0.65,
+        valuation: 25,
+        valuationLevel: '低估',
+        valuationColor: 'loss-green'
+      }
+    ];
+    
+    return NextResponse.json([...mockIndices, ...mockInternationalData]);
   }
 }
 

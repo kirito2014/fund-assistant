@@ -25,51 +25,118 @@ export default function Home() {
   });
   const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [clientTime, setClientTime] = useState<string>('');
+
+  // 客户端渲染时设置时间
+  useEffect(() => {
+    setClientTime(lastUpdated.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  }, [lastUpdated]);
+
+  // 获取市场状态
+  const fetchMarketStatus = async () => {
+    try {
+      const response = await fetch('/api/market-status');
+      if (response.ok) {
+        const data = await response.json();
+        setMarketStatus({
+          status: data.status,
+          statusColor: data.statusColor
+        });
+      }
+    } catch (error) {
+      console.error('获取市场状态失败:', error);
+    }
+  };
+
+  // 获取市场指数估值
+  const fetchMarketValuation = async () => {
+    try {
+      setLoading(true);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      
+      const response = await fetch('/api/market-valuation', {
+        signal: controller.signal,
+        cache: 'no-cache'
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setMarketIndices(data);
+        setLastUpdated(new Date());
+      }
+    } catch (error) {
+      console.error('获取市场指数估值失败:', error);
+      // 使用模拟数据作为备份
+      useMockData();
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // 使用模拟数据
+  const useMockData = () => {
+    const mockData = [
+      {
+        code: 'sh000001',
+        name: '上证指数',
+        price: 3125.25,
+        change: 15.62,
+        changePercent: 0.50,
+        valuation: 35,
+        valuationLevel: '低估',
+        valuationColor: 'loss-green'
+      },
+      {
+        code: 'sh000300',
+        name: '沪深300',
+        price: 3852.12,
+        change: 20.05,
+        changePercent: 0.52,
+        valuation: 25,
+        valuationLevel: '低估',
+        valuationColor: 'loss-green'
+      },
+      {
+        code: 'sz399001',
+        name: '深证成指',
+        price: 10256.78,
+        change: -52.34,
+        changePercent: -0.51,
+        valuation: 45,
+        valuationLevel: '正常',
+        valuationColor: 'yellow-400'
+      },
+      {
+        code: 'sz399006',
+        name: '创业板指',
+        price: 1782.30,
+        change: 21.85,
+        changePercent: 1.24,
+        valuation: 65,
+        valuationLevel: '高估',
+        valuationColor: 'gain-red'
+      }
+    ];
+    setMarketIndices(mockData);
+    setLastUpdated(new Date());
+  };
+
+  // 刷新数据
+  const handleRefresh = async () => {
+    await Promise.all([
+      fetchMarketStatus(),
+      fetchMarketValuation()
+    ]);
+  };
 
   useEffect(() => {
-    // 获取市场状态
-    const fetchMarketStatus = async () => {
-      try {
-        const response = await fetch('/api/market-status');
-        if (response.ok) {
-          const data = await response.json();
-          setMarketStatus({
-            status: data.status,
-            statusColor: data.statusColor
-          });
-        }
-      } catch (error) {
-        console.error('获取市场状态失败:', error);
-      }
-    };
-
-    // 获取市场指数估值
-    const fetchMarketValuation = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/market-valuation');
-        if (response.ok) {
-          const data = await response.json();
-          setMarketIndices(data);
-        }
-      } catch (error) {
-        console.error('获取市场指数估值失败:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     // 初始加载
     fetchMarketStatus();
     fetchMarketValuation();
-
-    // 每分钟更新一次
-    const interval = setInterval(() => {
-      fetchMarketStatus();
-      fetchMarketValuation();
-    }, 60000);
-
-    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -82,11 +149,20 @@ export default function Home() {
           <h2 className="text-white text-lg font-bold leading-tight tracking-tight">
             基金估值助手
           </h2>
-          <p className="text-[10px] text-slate-400">最后更新 14:30:05</p>
+          <p className="text-[10px] text-slate-400">
+            最后更新 {clientTime}
+          </p>
         </div>
         <div className="flex w-12 items-center justify-end">
-          <button className="flex items-center justify-center text-white">
-            <Icon name="refresh" />
+          <button 
+            className="flex items-center justify-center text-white hover:opacity-80 transition-opacity"
+            onClick={handleRefresh}
+            disabled={loading}
+          >
+            <Icon 
+              name="refresh" 
+              className={`${loading ? 'animate-spin' : ''}`}
+            />
           </button>
         </div>
       </div>
@@ -104,7 +180,7 @@ export default function Home() {
             {loading ? (
               // 加载状态
               Array.from({ length: 4 }).map((_, index) => (
-                <GlassCard key={index} variant="blue" className="p-4 rounded-xl flex flex-col gap-2">
+                <GlassCard key={index} className="p-4 rounded-xl flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-300 text-sm font-medium">加载中...</span>
                     <span className="bg-slate-700/20 text-slate-400 text-[10px] px-1.5 py-0.5 rounded">
@@ -122,29 +198,25 @@ export default function Home() {
               ))
             ) : marketIndices.length > 0 ? (
               // 数据加载完成
-              marketIndices.map((index) => (
-                <GlassCard key={index.code} variant="blue" className="p-4 rounded-xl flex flex-col gap-2">
+              marketIndices.slice(0, 4).map((index) => (
+                <GlassCard key={index.code} className="p-4 rounded-xl flex flex-col gap-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-300 text-sm font-medium">{index.name}</span>
-                    <span className={`bg-${index.valuationColor === 'loss-green' ? 'green' : index.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/20 text-${index.valuationColor} text-[10px] px-1.5 py-0.5 rounded`}>
+                    <span className="text-white/70 text-sm font-medium">{index.name}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold bg-${index.valuationColor === 'loss-green' ? 'green' : index.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/20 text-${index.valuationColor}`}>
                       {index.valuationLevel}
                     </span>
                   </div>
-                  <div className="flex flex-col">
-                    <span className="text-white text-xl font-bold">{index.price.toLocaleString()}</span>
-                    <span className={`text-${index.changePercent >= 0 ? 'gain-red' : 'loss-green'} text-xs font-medium`}>
-                      {index.changePercent >= 0 ? '+' : ''}{index.changePercent.toFixed(2)}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1 overflow-hidden">
-                    <div className={`bg-${index.valuationColor} h-full w-[${index.valuation}%]`}></div>
-                  </div>
+                  <span className="text-white text-2xl font-bold">{index.price.toLocaleString()}</span>
+                  <span className={`text-sm font-semibold text-${index.changePercent >= 0 ? 'gain-red' : 'loss-green'}`}>
+                    {index.changePercent >= 0 ? '+' : ''}{index.changePercent.toFixed(2)}% ({index.change >= 0 ? '+' : ''}{index.change.toFixed(2)}) 
+                    <Icon name={index.changePercent >= 0 ? 'trending_up' : 'trending_down'} className="text-xs align-middle" />
+                  </span>
                 </GlassCard>
               ))
             ) : (
               // 无数据状态
               Array.from({ length: 4 }).map((_, index) => (
-                <GlassCard key={index} variant="blue" className="p-4 rounded-xl flex flex-col gap-2">
+                <GlassCard key={index} className="p-4 rounded-xl flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-300 text-sm font-medium">暂无数据</span>
                     <span className="bg-slate-700/20 text-slate-400 text-[10px] px-1.5 py-0.5 rounded">

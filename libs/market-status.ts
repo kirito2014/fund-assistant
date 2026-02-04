@@ -69,7 +69,7 @@ export function isTradingTime(date: Date): boolean {
   beginDateAM.setHours(9, 30, 0, 0);
   endDateAM.setHours(11, 35, 0, 0);
   beginDatePM.setHours(13, 0, 0, 0);
-  endDatePM.setHours(15, 5, 0, 0);
+  endDatePM.setHours(15, 0, 0, 0);
 
   return (date >= beginDateAM && date <= endDateAM) || (date >= beginDatePM && date <= endDatePM);
 }
