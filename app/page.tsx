@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
@@ -85,26 +85,45 @@ export default function Home() {
   // 当前正在操作的占位符索引
   const [activePlaceholderIndex, setActivePlaceholderIndex] = useState<number | null>(null);
   
-  // 组件挂载状态
-  const [isMounted, setIsMounted] = useState(true);
+  // 组件挂载状态 Ref，用于在异步操作中安全检查
+  const isMountedRef = useRef(true);
 
   // 客户端渲染时设置时间
   useEffect(() => {
     setClientTime(lastUpdated.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
   }, [lastUpdated]);
 
-  // 组件卸载时清理
+  // 组件生命周期管理
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
-      setIsMounted(false);
+      isMountedRef.current = false;
     };
   }, []);
+
+  // 带有超时控制的 Fetch 辅助函数
+  const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 5000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      clearTimeout(id);
+      return response;
+    } catch (error) {
+      clearTimeout(id);
+      throw error;
+    }
+  };
 
   // 获取市场状态
   const fetchMarketStatus = async () => {
     try {
-      const response = await fetch('/api/market-status');
-      if (response.ok && isMounted) {
+      // 使用超时控制，避免 API 挂起
+      const response = await fetchWithTimeout('/api/market-status', {}, 3000);
+      if (response.ok && isMountedRef.current) {
         const data = await response.json();
         setMarketStatus({
           status: data.status,
@@ -112,7 +131,11 @@ export default function Home() {
         });
       }
     } catch (error) {
-      console.error('获取市场状态失败:', error);
+      console.warn('获取市场状态失败 (可能是本地开发环境未配置 API):', error);
+      // 失败时不阻塞 UI，使用默认值或保持原样
+      if (isMountedRef.current) {
+        setMarketStatus({ status: '正常', statusColor: 'orange' });
+      }
     }
   };
 
@@ -177,10 +200,16 @@ export default function Home() {
     }
   };
 
-  // 获取市场指数估值
-  const fetchMarketValuation = async () => {
+  /**
+   * 获取市场指数估值
+   * @param useCache 是否允许使用缓存（true: 优先查缓存; false: 强制网络请求）
+   * @param updateLoadingState 是否在内部更新 loading 状态（handleRefresh 时设为 false，由外部控制）
+   */
+  const fetchMarketValuation = async (useCache = true, updateLoadingState = true) => {
     try {
-      setLoading(true);
+      if (updateLoadingState) {
+        setLoading(true);
+      }
       
       const savedConfig = localStorage.getItem('marketIndicesConfig');
       let savedCodes: string[] = [];
@@ -193,24 +222,23 @@ export default function Home() {
           savedCodes = ['sh000001', 'sh000300', 'sz399001', 'sz399006'];
         }
       } else {
-        // 默认显示前4个
         savedCodes = ['sh000001', 'sh000300', 'sz399001', 'sz399006'];
       }
 
-      // 尝试从缓存获取数据
-      const cachedData = getCachedData();
-      if (cachedData && isMounted) {
-        // 检查缓存数据是否包含当前所有需要的指数
-        const cachedCodes = cachedData.map(item => item.code);
-        const hasAllCodes = savedCodes.every(code => cachedCodes.includes(code));
-        
-        if (hasAllCodes) {
-          // 过滤出当前需要的指数
-          const filteredIndices = cachedData.filter(item => savedCodes.includes(item.code));
-          setMarketIndices(filteredIndices);
-          setLastUpdated(new Date());
-          setLoading(false);
-          return;
+      // 仅当允许使用缓存时才检查
+      if (useCache) {
+        const cachedData = getCachedData();
+        if (cachedData && isMountedRef.current) {
+          const cachedCodes = cachedData.map(item => item.code);
+          const hasAllCodes = savedCodes.every(code => cachedCodes.includes(code));
+          
+          if (hasAllCodes) {
+            const filteredIndices = cachedData.filter(item => savedCodes.includes(item.code));
+            setMarketIndices(filteredIndices);
+            setLastUpdated(new Date());
+            if (updateLoadingState) setLoading(false);
+            return;
+          }
         }
       }
 
@@ -220,45 +248,34 @@ export default function Home() {
         .filter((code): code is string => Boolean(code));
 
       if (eastMoneyCodes.length === 0) {
-        // 兜底至少显示1个
         eastMoneyCodes.push('1.000001');
       }
 
-      // 构建指数代码字符串
       const secids = eastMoneyCodes.join(',');
-
-      // 东方财富API URL - 获取基本市场数据
       const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
 
-      // 获取数据
-      const response = await fetch(url);
+      // 使用带超时的 fetch
+      const response = await fetchWithTimeout(url, {}, 8000);
+      
       if (!response.ok) {
         throw new Error('Failed to fetch market data');
       }
 
       const data: any = await response.json();
-      
-      // 处理数据
       const indices: MarketIndex[] = [];
       
-      // 处理所有市场数据
       if (data.data && data.data.diff) {
-        const allIndices = data.data.diff.map((item: { f12: string; f13: number; f14: string; f2: number; f4: number; f3: number }) => {
-          // 构建完整的指数代码
+        const allIndices = data.data.diff.map((item: any) => {
           const code = item.f12;
           const marketCode = item.f13;
           const fullCode = `${marketCode}.${code}`;
           
-          // 获取前端使用的代码
           const frontendCode = REVERSE_INDEX_CODES_MAP[fullCode] || fullCode;
-          
-          // 获取指数名称
           const name = INDEX_NAMES_MAP[fullCode] || item.f14;
           const price = item.f2;
           const change = item.f4;
           const changePercent = item.f3;
           
-          // 获取估值数据
           const valuation = getMockValuation(fullCode);
           const { level, color } = getValuationLevel(valuation);
 
@@ -277,96 +294,93 @@ export default function Home() {
         indices.push(...allIndices);
       }
 
-      // 保存到缓存
       saveToCache(indices);
 
-      // 过滤出当前需要的指数
       const filteredIndices = indices.filter(item => savedCodes.includes(item.code));
       
-      // 兜底至少显示1个
       if (filteredIndices.length === 0 && indices.length > 0) {
         filteredIndices.push(indices[0]);
       }
 
-      if (isMounted) {
+      if (isMountedRef.current) {
         setMarketIndices(filteredIndices);
         setLastUpdated(new Date());
       }
     } catch (error) {
       console.error('获取市场指数估值失败:', error);
-      // 错误时使用默认数据
-      const defaultIndices: MarketIndex[] = [
-        { code: 'sh000001', name: '上证指数', price: 3125.25, change: 15.62, changePercent: 0.50, valuation: 35, valuationLevel: '低估', valuationColor: 'loss-green' },
-        { code: 'sh000300', name: '沪深300', price: 3852.12, change: 20.05, changePercent: 0.52, valuation: 25, valuationLevel: '低估', valuationColor: 'loss-green' },
-        { code: 'sz399001', name: '深证成指', price: 10256.78, change: -52.34, changePercent: -0.51, valuation: 45, valuationLevel: '正常', valuationColor: 'yellow-400' },
-        { code: 'sz399006', name: '创业板指', price: 1782.30, change: 21.85, changePercent: 1.24, valuation: 65, valuationLevel: '高估', valuationColor: 'gain-red' }
-      ];
-      if (isMounted) {
+      // 仅在数据为空时使用兜底数据，如果是刷新失败则保留旧数据
+      if (isMountedRef.current && marketIndices.length === 0) {
+        const defaultIndices: MarketIndex[] = [
+          { code: 'sh000001', name: '上证指数', price: 3125.25, change: 15.62, changePercent: 0.50, valuation: 35, valuationLevel: '低估', valuationColor: 'loss-green' },
+          { code: 'sh000300', name: '沪深300', price: 3852.12, change: 20.05, changePercent: 0.52, valuation: 25, valuationLevel: '低估', valuationColor: 'loss-green' },
+          { code: 'sz399001', name: '深证成指', price: 10256.78, change: -52.34, changePercent: -0.51, valuation: 45, valuationLevel: '正常', valuationColor: 'yellow-400' },
+          { code: 'sz399006', name: '创业板指', price: 1782.30, change: 21.85, changePercent: 1.24, valuation: 65, valuationLevel: '高估', valuationColor: 'gain-red' }
+        ];
         setMarketIndices(defaultIndices);
       }
     } finally {
-      if (isMounted) {
+      // 如果由该函数内部管理 loading，则关闭它
+      if (isMountedRef.current && updateLoadingState) {
         setLoading(false);
       }
     }
   };
 
+  // 修复后的 handleRefresh：健壮性增强
   const handleRefresh = async () => {
-    // 清除缓存，强制获取最新数据
+    // 1. 显式开启 Loading
+    setLoading(true);
+    
+    // 2. 清除缓存
     localStorage.removeItem(HOME_CACHE_KEY);
-    await Promise.all([
-      fetchMarketStatus(),
-      fetchMarketValuation()
-    ]);
+    
+    try {
+      // 3. 并行请求，但告知 fetchMarketValuation 不要管理 loading 状态 (useCache=false, updateLoadingState=false)
+      // 这样 handleRefresh 拥有对 loading 的独占控制权
+      await Promise.all([
+        fetchMarketStatus(),
+        fetchMarketValuation(false, false) 
+      ]);
+    } catch (e) {
+      console.error("刷新过程中发生错误:", e);
+    } finally {
+      // 4. 无论成功与否，强制关闭 Loading
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
   };
   
-  // 开启编辑模式：核心逻辑修改
   const startEditing = () => {
-    // 复制当前指数
     const slots = [...marketIndices];
-    
-    // 自动补全到4个位置（2x2布局）
-    // 无论当前是1个、2个还是3个，都补满到4个
     while (slots.length < 4) {
       slots.push(null as any);
     }
-    
     setEditSlots(slots);
     setIsEditing(true);
   };
 
-  // 保存变更：核心逻辑修改
   const saveChanges = async () => {
-    // 过滤掉 null 占位符，实现自动压缩/移位
-    // 例如：[A, null, B, null] -> [A, B]
-    // 这样渲染时，A和B自然会占据第一行的两个位置
     const compactedIndices = editSlots.filter((item): item is MarketIndex => item !== null);
     
+    // 立即更新 UI (乐观更新)
     setMarketIndices(compactedIndices);
+    setIsEditing(false);
     
+    // 保存配置
     const currentCodes = compactedIndices.map(index => index.code);
     localStorage.setItem('marketIndicesConfig', JSON.stringify(currentCodes));
-    
-    // 清除缓存，确保下次获取最新数据
     localStorage.removeItem(HOME_CACHE_KEY);
     
-    // 重新获取数据，确保显示最新的指数信息
-    await fetchMarketValuation();
-    
-    setIsEditing(false);
+    // 后台静默刷新：不使用缓存(false)，不触发布局 Loading(false)
+    await fetchMarketValuation(false, false); 
   };
 
-  // 在编辑模式下删除卡片
   const handleDeleteSlot = (index: number) => {
     const activeCount = editSlots.filter(item => item !== null).length;
-    
-    // 最少保留1个
-    if (activeCount <= 1) {
-      return;
-    }
-
+    if (activeCount <= 1) return;
     const newSlots = [...editSlots];
-    newSlots[index] = null; // 仅置为空，位置保留
+    newSlots[index] = null;
     setEditSlots(newSlots);
   };
 
@@ -375,7 +389,6 @@ export default function Home() {
     setShowModal(true);
   };
   
-  // 预定义的10个完整市场指数数据源
   const ALL_MARKET_INDICES: MarketIndex[] = [
     { code: 'sh000001', name: '上证指数', price: 3125.25, change: 15.62, changePercent: 0.50, valuation: 35, valuationLevel: '低估', valuationColor: 'loss-green' },
     { code: 'sh000300', name: '沪深300', price: 3852.12, change: 20.05, changePercent: 0.52, valuation: 25, valuationLevel: '低估', valuationColor: 'loss-green' },
@@ -391,14 +404,12 @@ export default function Home() {
 
   const selectIndexToAdd = (indexCode: string) => {
     if (activePlaceholderIndex === null) return;
-
     const selectedIndex = ALL_MARKET_INDICES.find((i: MarketIndex) => i.code === indexCode);
     if (selectedIndex) {
       const newSlots = [...editSlots];
       newSlots[activePlaceholderIndex] = selectedIndex;
       setEditSlots(newSlots);
     }
-    
     setShowModal(false);
     setActivePlaceholderIndex(null);
   };
@@ -407,13 +418,13 @@ export default function Home() {
     const currentActiveCodes = editSlots
       .filter((item): item is MarketIndex => item !== null)
       .map(item => item.code);
-
     return ALL_MARKET_INDICES.filter((item: MarketIndex) => !currentActiveCodes.includes(item.code));
   };
 
   useEffect(() => {
     fetchMarketStatus();
-    fetchMarketValuation();
+    // 初始加载：允许缓存(true)，允许更新Loading(true)
+    fetchMarketValuation(true, true);
   }, []);
 
   return (
@@ -471,7 +482,6 @@ export default function Home() {
             </div>
           </div>
           
-          {/* 强制 2x2 Grid 布局 */}
           <div className="grid grid-cols-2 gap-3">
             {loading ? (
               // 加载状态
@@ -493,12 +503,7 @@ export default function Home() {
                 </GlassCard>
               ))
             ) : (
-              // 渲染逻辑
-              // 编辑模式：始终渲染 editSlots (长度固定为4)
-              // 展示模式：渲染 marketIndices (长度1-4)
               (isEditing ? editSlots : marketIndices).map((indexData, i) => {
-                
-                // Case 1: 占位符 (仅在编辑模式且 slot 为 null 时)
                 if (indexData === null) {
                   return (
                     <div key={`slot-${i}`} className="relative h-full">
@@ -515,12 +520,9 @@ export default function Home() {
                   );
                 }
 
-                // Case 2: 实体卡片
                 return (
                   <div key={indexData.code} className={`relative ${isEditing ? 'animate-pulse-slow' : ''}`}>
                     <GlassCard className={`p-4 rounded-xl flex flex-col gap-2 relative h-full ${isEditing ? 'border-primary/30' : ''}`}>
-                      
-                      {/* 编辑模式下的删除按钮 */}
                       {isEditing && (
                         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
                           <button 
@@ -531,7 +533,6 @@ export default function Home() {
                           </button>
                         </div>
                       )}
-
                       <div className={`flex items-center justify-between ${isEditing ? 'opacity-50 blur-[1px]' : ''}`}>
                         <span className="text-white/70 text-sm font-medium truncate pr-2">{indexData.name}</span>
                         <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold bg-${indexData.valuationColor === 'loss-green' ? 'green' : indexData.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/20 text-${indexData.valuationColor}`}>
@@ -550,18 +551,12 @@ export default function Home() {
                 );
               })
             )}
-            
-            {/* 非编辑模式下，如果数据不足4个，这里不需要做额外填充，
-               因为题目要求"保存后未添加卡牌的空白处不显示任何卡片信息"。
-               grid布局会自动留白。
-            */}
           </div>
         </div>
 
         {/* Mood & Profit Large Card */}
         <div className="p-4 pt-8">
           <GlassCard className="p-6 rounded-2xl relative overflow-hidden flex items-center justify-between shadow-2xl">
-            {/* Decorative Glow */}
             <div className="absolute -right-10 -top-10 size-40 bg-primary/20 blur-[60px] rounded-full"></div>
             <div className="flex flex-col gap-1 z-10">
               <div className="flex items-center gap-2 mb-1">
@@ -602,16 +597,10 @@ export default function Home() {
         {/* Tabs Section */}
         <div className="mt-6">
           <div className="flex border-b border-slate-800 px-4 gap-8">
-            <a
-              className="flex flex-col items-center justify-center border-b-[3px] border-primary text-white pb-3 pt-4"
-              href="#"
-            >
+            <a className="flex flex-col items-center justify-center border-b-[3px] border-primary text-white pb-3 pt-4" href="#">
               <p className="text-white text-sm font-bold">今日涨幅榜</p>
             </a>
-            <a
-              className="flex flex-col items-center justify-center border-b-[3px] border-transparent text-slate-500 pb-3 pt-4"
-              href="#"
-            >
+            <a className="flex flex-col items-center justify-center border-b-[3px] border-transparent text-slate-500 pb-3 pt-4" href="#">
               <p className="text-sm font-bold">今日跌幅榜</p>
             </a>
           </div>
@@ -621,24 +610,9 @@ export default function Home() {
         <div className="px-4 mt-4 space-y-3">
           {
             [
-              {
-                rank: "01",
-                name: "天弘中证计算机主题",
-                code: "001630",
-                val: "+4.25%",
-              },
-              {
-                rank: "02",
-                name: "华夏半导体芯片ETF",
-                code: "008887",
-                val: "+3.82%",
-              },
-              {
-                rank: "03",
-                name: "易方达蓝筹精选",
-                code: "005827",
-                val: "+2.15%",
-              },
+              { rank: "01", name: "天弘中证计算机主题", code: "001630", val: "+4.25%" },
+              { rank: "02", name: "华夏半导体芯片ETF", code: "008887", val: "+3.82%" },
+              { rank: "03", name: "易方达蓝筹精选", code: "005827", val: "+2.15%" },
             ].map((item, idx) => (
               <GlassCard key={idx} className="flex items-center justify-between p-4 rounded-xl">
                 <div className="flex items-center gap-4">
@@ -647,9 +621,7 @@ export default function Home() {
                   </div>
                   <div>
                     <p className="text-white text-sm font-bold">{item.name}</p>
-                    <p className="text-slate-500 text-[10px]">
-                      {item.code} · 场外估值
-                    </p>
+                    <p className="text-slate-500 text-[10px]">{item.code} · 场外估值</p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -659,8 +631,6 @@ export default function Home() {
               </GlassCard>
             ))
           }
-          
-           {/* Placeholder item 4 */}
            <GlassCard className="flex items-center justify-between p-4 rounded-xl opacity-80">
               <div className="flex items-center gap-4">
                 <div className="size-10 bg-slate-800 rounded-lg flex items-center justify-center">
@@ -668,16 +638,13 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="text-white text-sm font-bold">招商中证白酒</p>
-                  <p className="text-slate-500 text-[10px]">
-                    161725 · 场外估值
-                  </p>
+                  <p className="text-slate-500 text-[10px]">161725 · 场外估值</p>
                 </div>
               </div>
               <div className="text-right">
                 <p className="text-gain-red font-bold text-base">+1.98%</p>
               </div>
             </GlassCard>
-
           <button className="w-full py-3 text-slate-400 text-sm font-medium">
             查看完整 Top 10 榜单
           </button>
