@@ -18,7 +18,7 @@ interface MarketIndex {
   valuationColor: string;
 }
 
-// 指数代码映射（使用东方财富的指数代码格式）
+// 指数代码映射
 const INDEX_CODES_MAP: Record<string, string> = {
   'sh000001': '1.000001',
   'sh000300': '1.000300',
@@ -32,7 +32,7 @@ const INDEX_CODES_MAP: Record<string, string> = {
   'usSPX': '100.SPX'
 };
 
-// 反向映射，用于从东方财富代码获取前端代码
+// 反向映射
 const REVERSE_INDEX_CODES_MAP: Record<string, string> = {
   '1.000001': 'sh000001',
   '1.000300': 'sh000300',
@@ -62,38 +62,152 @@ const INDEX_NAMES_MAP: Record<string, string> = {
 
 // 缓存键
 const HOME_CACHE_KEY = 'homeMarketIndicesData';
-const HOME_CACHE_EXPIRY = 5 * 60 * 1000; // 5分钟缓存
+const HOME_CACHE_EXPIRY = 5 * 60 * 1000; 
 
 export default function Home() {
   const [marketStatus, setMarketStatus] = useState({
-    status: '加载中',
-    statusColor: 'orange'
+    status: '休市中',
+    statusColor: 'gray'
   });
   
-  // 真实展示的指数列表
+  // 新增状态：当天是否为交易日（从API获取结果后存储）
+  // null = 未知/加载中, true = 交易日, false = 节假日/非交易日
+  const [isTradingDay, setIsTradingDay] = useState<boolean | null>(null);
+
   const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
-  
-  // 编辑模式下的槽位状态 (固定长度为4，包含 null 占位符)
   const [editSlots, setEditSlots] = useState<(MarketIndex | null)[]>([]);
-  
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [clientTime, setClientTime] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  
-  // 当前正在操作的占位符索引
   const [activePlaceholderIndex, setActivePlaceholderIndex] = useState<number | null>(null);
   
-  // 组件挂载状态 Ref，用于在异步操作中安全检查
   const isMountedRef = useRef(true);
 
-  // 客户端渲染时设置时间
-  useEffect(() => {
-    setClientTime(lastUpdated.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-  }, [lastUpdated]);
+  // ----------------------------------------------------------------
+  // 核心逻辑 1: 从 API 获取今日是否为交易日
+  // ----------------------------------------------------------------
+  const checkTradingDayStatus = async () => {
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    try {
+      // 使用 timor.tech 免费节假日 API
+      // type: 0=工作日, 1=周末, 2=节日, 3=调休(要上班)
+      // 交易日 = (type === 0 || type === 3) 且不是特定的金融休市日(简单逻辑先认为调休即交易)
+      // 注意：真实金融API更为复杂，这里演示通用逻辑
+      const res = await fetch(`https://timor.tech/api/holiday/info/${dateStr}`, {
+        method: 'GET',
+        headers: { 'User-Agent': 'Mozilla/5.0' } // 部分公共API需要UA
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        // 如果 code 是 0，表示成功
+        if (data.code === 0) {
+          const type = data.type.type;
+          // type 0 (工作日) 或 3 (调休工作日) -> 是交易日
+          // type 1 (周末) 或 2 (节日) -> 不是交易日
+          const isWorkDay = (type === 0 || type === 3);
+          setIsTradingDay(isWorkDay);
+          return; 
+        }
+      }
+      throw new Error("API response invalid");
+    } catch (error) {
+      console.warn("节假日API获取失败，降级为本地周末判断:", error);
+      // 降级策略：本地判断周六周日
+      const day = now.getDay();
+      const isWeekend = (day === 0 || day === 6);
+      setIsTradingDay(!isWeekend);
+    }
+  };
 
-  // 组件生命周期管理
+  // ----------------------------------------------------------------
+  // 核心逻辑 2: 根据 isTradingDay 和当前时间计算状态
+  // ----------------------------------------------------------------
+  const calculateRealTimeStatus = (isTradeDay: boolean | null) => {
+    // 如果还没获取到交易日信息，默认先按休市处理，或者按本地时间预判
+    // 这里为了用户体验，如果 fetch 还没回来，先跑一个本地判断
+    let currentIsTradeDay = isTradeDay;
+    if (currentIsTradeDay === null) {
+      const day = new Date().getDay();
+      currentIsTradeDay = (day !== 0 && day !== 6);
+    }
+
+    // 如果确定是非交易日
+    if (!currentIsTradeDay) {
+      return { status: '休市中', statusColor: 'gray' };
+    }
+
+    // 是交易日，判断具体时间段
+    const now = new Date();
+    // 转换为北京时间逻辑（处理本地时间可能不是北京时间的情况）
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const beijingTime = new Date(utc + (3600000 * 8));
+    const hour = beijingTime.getHours();
+    const minute = beijingTime.getMinutes();
+    const timeValue = hour * 100 + minute; // 9:30 -> 930
+
+    // A股交易时段
+    if (timeValue >= 930 && timeValue < 1130) {
+      return { status: '开市中', statusColor: 'green' };
+    } else if (timeValue >= 1130 && timeValue < 1300) {
+      return { status: '午间休市', statusColor: 'orange' };
+    } else if (timeValue >= 1300 && timeValue < 1500) {
+      return { status: '开市中', statusColor: 'green' };
+    } else {
+      // 9:30 之前或 15:00 之后
+      return { status: '休市中', statusColor: 'gray' };
+    }
+  };
+
+  // 初始化：挂载时检查一次节假日 API
+  useEffect(() => {
+    checkTradingDayStatus();
+  }, []);
+
+  // 定时器：每秒更新时间显示和交易状态
+  useEffect(() => {
+    const updateTick = () => {
+      // 更新客户端时间显示
+      setClientTime(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      
+      // 基于当前的 isTradingDay 状态计算文字
+      const newStatus = calculateRealTimeStatus(isTradingDay);
+      
+      // 避免重复 setState 造成不必要的渲染（简单的 diff）
+      setMarketStatus(prev => {
+        if (prev.status !== newStatus.status || prev.statusColor !== newStatus.statusColor) {
+          return newStatus;
+        }
+        return prev;
+      });
+    };
+
+    updateTick();
+    const timer = setInterval(updateTick, 1000);
+    return () => clearInterval(timer);
+  }, [isTradingDay]); // 依赖 isTradingDay，当 API 返回结果后，定时器逻辑会自动更新为准确状态
+
+
+  // ----------------------------------------------------------------
+  // UI 辅助：估值角标样式 (保持圆角矩形)
+  // ----------------------------------------------------------------
+  const getBadgeStyle = (colorKey: string) => {
+    const baseStyle = "shrink-0 text-[10px] px-2 py-0.5 rounded-md font-bold transition-colors border";
+    switch (colorKey) {
+      case 'loss-green': // 低估
+        return `${baseStyle} bg-emerald-500/10 text-emerald-400 border-emerald-500/20`;
+      case 'gain-red':   // 高估
+        return `${baseStyle} bg-red-500/10 text-red-400 border-red-500/20`;
+      case 'yellow-400': // 正常
+      default:
+        return `${baseStyle} bg-yellow-500/10 text-yellow-400 border-yellow-500/20`;
+    }
+  };
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -101,15 +215,11 @@ export default function Home() {
     };
   }, []);
 
-  // 带有超时控制的 Fetch 辅助函数
   const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 5000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
     try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal
-      });
+      const response = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(id);
       return response;
     } catch (error) {
@@ -118,28 +228,11 @@ export default function Home() {
     }
   };
 
-  // 获取市场状态
   const fetchMarketStatus = async () => {
-    try {
-      // 使用超时控制，避免 API 挂起
-      const response = await fetchWithTimeout('/api/market-status', {}, 3000);
-      if (response.ok && isMountedRef.current) {
-        const data = await response.json();
-        setMarketStatus({
-          status: data.status,
-          statusColor: data.statusColor
-        });
-      }
-    } catch (error) {
-      console.warn('获取市场状态失败 (可能是本地开发环境未配置 API):', error);
-      // 失败时不阻塞 UI，使用默认值或保持原样
-      if (isMountedRef.current) {
-        setMarketStatus({ status: '正常', statusColor: 'orange' });
-      }
-    }
+     // 此函数主要用于手动刷新时重新检查节假日信息
+     await checkTradingDayStatus();
   };
 
-  // 获取模拟估值数据
   const getMockValuation = (code: string): number => {
     const valuations: Record<string, number> = {
       '1.000001': 35,
@@ -156,10 +249,9 @@ export default function Home() {
     return valuations[code] || 50;
   };
 
-  // 获取估值水平
   const getValuationLevel = (valuation: number): { level: string; color: string } => {
     if (valuation < 20) {
-      return { level: '极低', color: 'loss-green' };
+      return { level: '极低估', color: 'loss-green' };
     } else if (valuation < 40) {
       return { level: '低估', color: 'loss-green' };
     } else if (valuation < 60) {
@@ -171,7 +263,6 @@ export default function Home() {
     }
   };
 
-  // 从缓存获取数据
   const getCachedData = (): MarketIndex[] | null => {
     try {
       const cachedData = localStorage.getItem(HOME_CACHE_KEY);
@@ -187,29 +278,18 @@ export default function Home() {
     return null;
   };
 
-  // 保存数据到缓存
   const saveToCache = (data: MarketIndex[]) => {
     try {
-      const cacheData = {
-        data,
-        timestamp: Date.now()
-      };
+      const cacheData = { data, timestamp: Date.now() };
       localStorage.setItem(HOME_CACHE_KEY, JSON.stringify(cacheData));
     } catch (error) {
       console.error('保存缓存失败:', error);
     }
   };
 
-  /**
-   * 获取市场指数估值
-   * @param useCache 是否允许使用缓存（true: 优先查缓存; false: 强制网络请求）
-   * @param updateLoadingState 是否在内部更新 loading 状态（handleRefresh 时设为 false，由外部控制）
-   */
   const fetchMarketValuation = async (useCache = true, updateLoadingState = true) => {
     try {
-      if (updateLoadingState) {
-        setLoading(true);
-      }
+      if (updateLoadingState) setLoading(true);
       
       const savedConfig = localStorage.getItem('marketIndicesConfig');
       let savedCodes: string[] = [];
@@ -218,20 +298,17 @@ export default function Home() {
         try {
           savedCodes = JSON.parse(savedConfig);
         } catch (e) {
-          console.error('解析保存的配置失败:', e);
           savedCodes = ['sh000001', 'sh000300', 'sz399001', 'sz399006'];
         }
       } else {
         savedCodes = ['sh000001', 'sh000300', 'sz399001', 'sz399006'];
       }
 
-      // 仅当允许使用缓存时才检查
       if (useCache) {
         const cachedData = getCachedData();
         if (cachedData && isMountedRef.current) {
           const cachedCodes = cachedData.map(item => item.code);
           const hasAllCodes = savedCodes.every(code => cachedCodes.includes(code));
-          
           if (hasAllCodes) {
             const filteredIndices = cachedData.filter(item => savedCodes.includes(item.code));
             setMarketIndices(filteredIndices);
@@ -242,24 +319,17 @@ export default function Home() {
         }
       }
 
-      // 构建东方财富API需要的指数代码
       const eastMoneyCodes = savedCodes
         .map(code => INDEX_CODES_MAP[code])
         .filter((code): code is string => Boolean(code));
 
-      if (eastMoneyCodes.length === 0) {
-        eastMoneyCodes.push('1.000001');
-      }
+      if (eastMoneyCodes.length === 0) eastMoneyCodes.push('1.000001');
 
       const secids = eastMoneyCodes.join(',');
       const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
 
-      // 使用带超时的 fetch
       const response = await fetchWithTimeout(url, {}, 8000);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch market data');
-      }
+      if (!response.ok) throw new Error('Failed to fetch market data');
 
       const data: any = await response.json();
       const indices: MarketIndex[] = [];
@@ -290,17 +360,13 @@ export default function Home() {
             valuationColor: color
           };
         });
-        
         indices.push(...allIndices);
       }
 
       saveToCache(indices);
 
       const filteredIndices = indices.filter(item => savedCodes.includes(item.code));
-      
-      if (filteredIndices.length === 0 && indices.length > 0) {
-        filteredIndices.push(indices[0]);
-      }
+      if (filteredIndices.length === 0 && indices.length > 0) filteredIndices.push(indices[0]);
 
       if (isMountedRef.current) {
         setMarketIndices(filteredIndices);
@@ -308,7 +374,6 @@ export default function Home() {
       }
     } catch (error) {
       console.error('获取市场指数估值失败:', error);
-      // 仅在数据为空时使用兜底数据，如果是刷新失败则保留旧数据
       if (isMountedRef.current && marketIndices.length === 0) {
         const defaultIndices: MarketIndex[] = [
           { code: 'sh000001', name: '上证指数', price: 3125.25, change: 15.62, changePercent: 0.50, valuation: 35, valuationLevel: '低估', valuationColor: 'loss-green' },
@@ -319,60 +384,39 @@ export default function Home() {
         setMarketIndices(defaultIndices);
       }
     } finally {
-      // 如果由该函数内部管理 loading，则关闭它
-      if (isMountedRef.current && updateLoadingState) {
-        setLoading(false);
-      }
+      if (isMountedRef.current && updateLoadingState) setLoading(false);
     }
   };
 
-  // 修复后的 handleRefresh：健壮性增强
   const handleRefresh = async () => {
-    // 1. 显式开启 Loading
     setLoading(true);
-    
-    // 2. 清除缓存
     localStorage.removeItem(HOME_CACHE_KEY);
-    
     try {
-      // 3. 并行请求，但告知 fetchMarketValuation 不要管理 loading 状态 (useCache=false, updateLoadingState=false)
-      // 这样 handleRefresh 拥有对 loading 的独占控制权
       await Promise.all([
-        fetchMarketStatus(),
+        fetchMarketStatus(), // 刷新时重新检查交易状态 API
         fetchMarketValuation(false, false) 
       ]);
     } catch (e) {
       console.error("刷新过程中发生错误:", e);
     } finally {
-      // 4. 无论成功与否，强制关闭 Loading
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
+      if (isMountedRef.current) setLoading(false);
     }
   };
   
   const startEditing = () => {
     const slots = [...marketIndices];
-    while (slots.length < 4) {
-      slots.push(null as any);
-    }
+    while (slots.length < 4) slots.push(null as any);
     setEditSlots(slots);
     setIsEditing(true);
   };
 
   const saveChanges = async () => {
     const compactedIndices = editSlots.filter((item): item is MarketIndex => item !== null);
-    
-    // 立即更新 UI (乐观更新)
     setMarketIndices(compactedIndices);
     setIsEditing(false);
-    
-    // 保存配置
     const currentCodes = compactedIndices.map(index => index.code);
     localStorage.setItem('marketIndicesConfig', JSON.stringify(currentCodes));
     localStorage.removeItem(HOME_CACHE_KEY);
-    
-    // 后台静默刷新：不使用缓存(false)，不触发布局 Loading(false)
     await fetchMarketValuation(false, false); 
   };
 
@@ -422,8 +466,7 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetchMarketStatus();
-    // 初始加载：允许缓存(true)，允许更新Loading(true)
+    // 初始加载
     fetchMarketValuation(true, true);
   }, []);
 
@@ -431,8 +474,7 @@ export default function Home() {
     <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[430px] mx-auto overflow-x-hidden shadow-2xl bg-background-light dark:bg-background-dark font-display text-white">
       {/* Top Navigation Bar */}
       <div className="sticky top-0 z-50 flex items-center bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md p-4 pb-2 justify-between border-b border-white/10">
-        <div className="flex w-12 items-center justify-start">
-        </div>
+        <div className="flex w-12 items-center justify-start"></div>
         <div className="flex flex-col items-center flex-1">
           <h2 className="text-white text-lg font-bold leading-tight tracking-tight">
             基金估值助手
@@ -447,10 +489,7 @@ export default function Home() {
             onClick={handleRefresh}
             disabled={loading}
           >
-            <Icon 
-              name="refresh" 
-              className={`${loading ? 'animate-spin' : ''}`}
-            />
+            <Icon name="refresh" className={`${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
@@ -484,7 +523,6 @@ export default function Home() {
           
           <div className="grid grid-cols-2 gap-3">
             {loading ? (
-              // 加载状态
               Array.from({ length: 4 }).map((_, index) => (
                 <GlassCard key={index} className="p-4 rounded-xl flex flex-col gap-2">
                   <div className="flex items-center justify-between">
@@ -535,7 +573,8 @@ export default function Home() {
                       )}
                       <div className={`flex items-center justify-between ${isEditing ? 'opacity-50 blur-[1px]' : ''}`}>
                         <span className="text-white/70 text-sm font-medium truncate pr-2">{indexData.name}</span>
-                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold bg-${indexData.valuationColor === 'loss-green' ? 'green' : indexData.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/20 text-${indexData.valuationColor}`}>
+                        {/* 圆角矩形样式 */}
+                        <span className={getBadgeStyle(indexData.valuationColor)}>
                           {indexData.valuationLevel}
                         </span>
                       </div>
@@ -566,12 +605,13 @@ export default function Home() {
                 <span className="text-white font-bold px-2 py-0.5 rounded-full bg-primary/30 text-[10px]">
                   大喜
                 </span>
+                {/* 交易状态徽章 */}
                 <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] border ${
                   marketStatus.statusColor === 'green' 
                     ? 'text-green-400 bg-green-400/20 border-green-400/40' 
-                    : marketStatus.statusColor === 'red'
-                    ? 'text-red-400 bg-red-400/20 border-red-400/40'
-                    : 'text-orange-400 bg-orange-400/20 border-orange-400/40'
+                    : marketStatus.statusColor === 'orange'
+                    ? 'text-orange-400 bg-orange-400/20 border-orange-400/40'
+                    : 'text-gray-400 bg-gray-400/20 border-gray-400/40'
                 }`}>
                   {marketStatus.status}
                 </span>
@@ -678,7 +718,7 @@ export default function Home() {
                       <div className="text-slate-400 text-[10px] mt-0.5">{index.code}</div>
                     </div>
                     <div className="text-right">
-                      <span className={`block text-[10px] px-1.5 py-0.5 rounded uppercase font-bold bg-${index.valuationColor === 'loss-green' ? 'green' : index.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/10 text-${index.valuationColor} mb-1`}>
+                      <span className={`block w-fit mb-1 ${getBadgeStyle(index.valuationColor)}`}>
                         {index.valuationLevel}
                       </span>
                       <span className={`text-xs font-medium text-${index.changePercent >= 0 ? 'gain-red' : 'loss-green'}`}>
