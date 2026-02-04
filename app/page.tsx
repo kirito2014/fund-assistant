@@ -18,19 +18,40 @@ interface MarketIndex {
   valuationColor: string;
 }
 
+// 预定义的10个完整市场指数数据源
+const ALL_MARKET_INDICES: MarketIndex[] = [
+  { code: 'sh000001', name: '上证指数', price: 3125.25, change: 15.62, changePercent: 0.50, valuation: 35, valuationLevel: '低估', valuationColor: 'loss-green' },
+  { code: 'sh000300', name: '沪深300', price: 3852.12, change: 20.05, changePercent: 0.52, valuation: 25, valuationLevel: '低估', valuationColor: 'loss-green' },
+  { code: 'sz399001', name: '深证成指', price: 10256.78, change: -52.34, changePercent: -0.51, valuation: 45, valuationLevel: '正常', valuationColor: 'yellow-400' },
+  { code: 'sz399006', name: '创业板指', price: 1782.30, change: 21.85, changePercent: 1.24, valuation: 65, valuationLevel: '高估', valuationColor: 'gain-red' },
+  { code: 'sz399005', name: '中小板指', price: 8521.63, change: -125.36, changePercent: -1.45, valuation: 40, valuationLevel: '正常', valuationColor: 'yellow-400' },
+  { code: 'sh000688', name: '科创50', price: 987.45, change: 15.67, changePercent: 1.61, valuation: 55, valuationLevel: '正常', valuationColor: 'yellow-400' },
+  { code: 'sh000905', name: '中证500', price: 5621.33, change: -12.44, changePercent: -0.22, valuation: 30, valuationLevel: '低估', valuationColor: 'loss-green' },
+  { code: 'sh000852', name: '中证1000', price: 6102.45, change: 45.22, changePercent: 0.75, valuation: 50, valuationLevel: '正常', valuationColor: 'yellow-400' },
+  { code: 'hkHSI', name: '恒生指数', price: 17500.20, change: -200.50, changePercent: -1.13, valuation: 20, valuationLevel: '极低', valuationColor: 'loss-green' },
+  { code: 'usSPX', name: '标普500', price: 4780.15, change: 10.50, changePercent: 0.22, valuation: 80, valuationLevel: '高估', valuationColor: 'gain-red' },
+];
+
 export default function Home() {
   const [marketStatus, setMarketStatus] = useState({
     status: '加载中',
     statusColor: 'orange'
   });
+  
+  // 真实展示的指数列表
   const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
+  
+  // 编辑模式下的槽位状态 (固定长度为4，包含 null 占位符)
+  const [editSlots, setEditSlots] = useState<(MarketIndex | null)[]>([]);
+  
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [clientTime, setClientTime] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
-  const [deletedIndices, setDeletedIndices] = useState<string[]>([]);
   const [showModal, setShowModal] = useState(false);
-  const [availableIndices, setAvailableIndices] = useState<MarketIndex[]>([]);
+  
+  // 当前正在操作的占位符索引
+  const [activePlaceholderIndex, setActivePlaceholderIndex] = useState<number | null>(null);
 
   // 客户端渲染时设置时间
   useEffect(() => {
@@ -57,103 +78,46 @@ export default function Home() {
   const fetchMarketValuation = async () => {
     try {
       setLoading(true);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      const response = await fetch('/api/market-valuation', {
-        signal: controller.signal,
-        cache: 'no-cache'
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        const data = await response.json();
-        
-        // 检查本地存储是否有保存的配置
-        const savedConfig = localStorage.getItem('marketIndicesConfig');
-        if (savedConfig) {
-          try {
-            const savedCodes: string[] = JSON.parse(savedConfig);
-            // 按照保存的顺序排列指数
-            const sortedIndices = savedCodes
-              .map((code: string) => data.find((index: MarketIndex) => index.code === code))
-              .filter(Boolean);
-            
-            // 添加未在配置中的指数（如果有）
-            const remainingIndices = data.filter((index: MarketIndex) => 
-              !savedCodes.includes(index.code)
-            );
-            
-            setMarketIndices([...sortedIndices, ...remainingIndices]);
-          } catch (e) {
-            console.error('解析保存的配置失败:', e);
-            setMarketIndices(data);
-          }
-        } else {
-          setMarketIndices(data);
+      const savedConfig = localStorage.getItem('marketIndicesConfig');
+      let initialIndices: MarketIndex[] = [];
+
+      if (savedConfig) {
+        try {
+          const savedCodes: string[] = JSON.parse(savedConfig);
+          initialIndices = savedCodes
+            .map(code => ALL_MARKET_INDICES.find(item => item.code === code))
+            .filter((item): item is MarketIndex => Boolean(item));
+        } catch (e) {
+          console.error('解析保存的配置失败:', e);
+          initialIndices = ALL_MARKET_INDICES.slice(0, 4);
         }
-        
-        setLastUpdated(new Date());
+      } else {
+        // 默认显示前4个
+        initialIndices = ALL_MARKET_INDICES.slice(0, 4);
       }
+      
+      // 兜底至少显示1个
+      if (initialIndices.length === 0) {
+        initialIndices = [ALL_MARKET_INDICES[0]];
+      }
+      
+      // 确保不超过4个
+      if (initialIndices.length > 4) {
+        initialIndices = initialIndices.slice(0, 4);
+      }
+
+      setMarketIndices(initialIndices);
+      setLastUpdated(new Date());
     } catch (error) {
       console.error('获取市场指数估值失败:', error);
-      // 使用模拟数据作为备份
-      useMockData();
+      setMarketIndices(ALL_MARKET_INDICES.slice(0, 4));
     } finally {
       setLoading(false);
     }
   };
-  
-  // 使用模拟数据
-  const useMockData = () => {
-    const mockData = [
-      {
-        code: 'sh000001',
-        name: '上证指数',
-        price: 3125.25,
-        change: 15.62,
-        changePercent: 0.50,
-        valuation: 35,
-        valuationLevel: '低估',
-        valuationColor: 'loss-green'
-      },
-      {
-        code: 'sh000300',
-        name: '沪深300',
-        price: 3852.12,
-        change: 20.05,
-        changePercent: 0.52,
-        valuation: 25,
-        valuationLevel: '低估',
-        valuationColor: 'loss-green'
-      },
-      {
-        code: 'sz399001',
-        name: '深证成指',
-        price: 10256.78,
-        change: -52.34,
-        changePercent: -0.51,
-        valuation: 45,
-        valuationLevel: '正常',
-        valuationColor: 'yellow-400'
-      },
-      {
-        code: 'sz399006',
-        name: '创业板指',
-        price: 1782.30,
-        change: 21.85,
-        changePercent: 1.24,
-        valuation: 65,
-        valuationLevel: '高估',
-        valuationColor: 'gain-red'
-      }
-    ];
-    setMarketIndices(mockData);
-    setLastUpdated(new Date());
-  };
 
-  // 刷新数据
   const handleRefresh = async () => {
     await Promise.all([
       fetchMarketStatus(),
@@ -161,75 +125,78 @@ export default function Home() {
     ]);
   };
   
-  // 获取可用市场指数（当前未添加的指数）
-  const getAvailableIndices = () => {
-    // 假设我们有更多的市场指数可供选择
-    const additionalIndices = [
-      {
-        code: 'sz399005',
-        name: '中小板指',
-        price: 8521.63,
-        change: -125.36,
-        changePercent: -1.45,
-        valuation: 40,
-        valuationLevel: '正常',
-        valuationColor: 'yellow-400'
-      },
-      {
-        code: 'sh000688',
-        name: '科创50',
-        price: 987.45,
-        change: 15.67,
-        changePercent: 1.61,
-        valuation: 55,
-        valuationLevel: '正常',
-        valuationColor: 'yellow-400'
-      }
-    ];
+  // 开启编辑模式：核心逻辑修改
+  const startEditing = () => {
+    // 复制当前指数
+    const slots = [...marketIndices];
     
-    // 所有可能的指数
-    const allIndices = [...marketIndices, ...additionalIndices];
+    // 自动补全到4个位置（2x2布局）
+    // 无论当前是1个、2个还是3个，都补满到4个
+    while (slots.length < 4) {
+      slots.push(null as any);
+    }
     
-    // 过滤出当前未显示的指数
-    const currentCodes = marketIndices
-      .filter(index => !deletedIndices.includes(index.code))
-      .map(index => index.code);
-    
-    const available = allIndices
-      .filter(index => !currentCodes.includes(index.code))
-      .filter((value, index, self) => 
-        index === self.findIndex((t) => (t.code === value.code))
-      );
-    
-    setAvailableIndices(available);
-    return available;
+    setEditSlots(slots);
+    setIsEditing(true);
   };
-  
-  // 打开添加卡片模态框
-  const openAddModal = () => {
-    getAvailableIndices();
+
+  // 保存变更：核心逻辑修改
+  const saveChanges = () => {
+    // 过滤掉 null 占位符，实现自动压缩/移位
+    // 例如：[A, null, B, null] -> [A, B]
+    // 这样渲染时，A和B自然会占据第一行的两个位置
+    const compactedIndices = editSlots.filter((item): item is MarketIndex => item !== null);
+    
+    setMarketIndices(compactedIndices);
+    
+    const currentCodes = compactedIndices.map(index => index.code);
+    localStorage.setItem('marketIndicesConfig', JSON.stringify(currentCodes));
+    
+    setIsEditing(false);
+  };
+
+  // 在编辑模式下删除卡片
+  const handleDeleteSlot = (index: number) => {
+    const activeCount = editSlots.filter(item => item !== null).length;
+    
+    // 最少保留1个
+    if (activeCount <= 1) {
+      return;
+    }
+
+    const newSlots = [...editSlots];
+    newSlots[index] = null; // 仅置为空，位置保留
+    setEditSlots(newSlots);
+  };
+
+  const openAddModalForSlot = (slotIndex: number) => {
+    setActivePlaceholderIndex(slotIndex);
     setShowModal(true);
   };
   
-  // 添加新卡片
-  const addNewCard = (indexCode: string) => {
-    // 从可用指数中找到对应的指数
-    const indexToAdd = availableIndices.find(index => index.code === indexCode);
-    if (indexToAdd) {
-      // 检查是否已经有该指数
-      const existingIndex = marketIndices.find(index => index.code === indexCode);
-      if (!existingIndex) {
-        // 如果市场指数列表中没有该指数，添加它
-        setMarketIndices([...marketIndices, indexToAdd]);
-      }
-      // 从已删除列表中移除该指数，这样它就会显示出来
-      setDeletedIndices(deletedIndices.filter(code => code !== indexCode));
+  const selectIndexToAdd = (indexCode: string) => {
+    if (activePlaceholderIndex === null) return;
+
+    const selectedIndex = ALL_MARKET_INDICES.find(i => i.code === indexCode);
+    if (selectedIndex) {
+      const newSlots = [...editSlots];
+      newSlots[activePlaceholderIndex] = selectedIndex;
+      setEditSlots(newSlots);
     }
+    
     setShowModal(false);
+    setActivePlaceholderIndex(null);
+  };
+
+  const getAvailableIndicesForModal = () => {
+    const currentActiveCodes = editSlots
+      .filter((item): item is MarketIndex => item !== null)
+      .map(item => item.code);
+
+    return ALL_MARKET_INDICES.filter(item => !currentActiveCodes.includes(item.code));
   };
 
   useEffect(() => {
-    // 初始加载
     fetchMarketStatus();
     fetchMarketValuation();
   }, []);
@@ -273,25 +240,14 @@ export default function Home() {
               {isEditing ? (
                 <button 
                   className="text-primary text-xs font-medium hover:underline"
-                  onClick={() => {
-                    // 保存当前的指数卡片配置
-                    const currentIndices = marketIndices
-                      .filter(index => !deletedIndices.includes(index.code))
-                      .map(index => index.code);
-                    
-                    // 使用localStorage保存配置
-                    localStorage.setItem('marketIndicesConfig', JSON.stringify(currentIndices));
-                    
-                    // 退出编辑模式
-                    setIsEditing(false);
-                  }}
+                  onClick={saveChanges}
                 >
                   保存变更
                 </button>
               ) : (
                 <button 
                   className="text-primary text-xs font-medium hover:underline"
-                  onClick={() => setIsEditing(true)}
+                  onClick={startEditing}
                 >
                   编辑卡片
                 </button>
@@ -299,6 +255,8 @@ export default function Home() {
               <Link href="/market" className="text-primary text-xs font-medium hover:underline">查看全部</Link>
             </div>
           </div>
+          
+          {/* 强制 2x2 Grid 布局 */}
           <div className="grid grid-cols-2 gap-3">
             {loading ? (
               // 加载状态
@@ -319,81 +277,69 @@ export default function Home() {
                   </div>
                 </GlassCard>
               ))
-            ) : marketIndices.length > 0 ? (
-              // 数据加载完成
-              marketIndices
-                .slice(0, 4) // 只处理前4个卡片
-                .map((index) => {
-                  // 检查当前卡片是否被删除
-                  const isDeleted = deletedIndices.includes(index.code);
-                  
-                  if (isDeleted) {
-                    // 显示虚线占位卡片
-                    return (
-                      <div key={`placeholder-${index.code}`} className="relative">
-                        <div className="p-4 rounded-xl flex flex-col gap-2 border-2 border-dashed border-white/20 bg-white/5 backdrop-blur-md flex items-center justify-center min-h-[120px]">
+            ) : (
+              // 渲染逻辑
+              // 编辑模式：始终渲染 editSlots (长度固定为4)
+              // 展示模式：渲染 marketIndices (长度1-4)
+              (isEditing ? editSlots : marketIndices).map((indexData, i) => {
+                
+                // Case 1: 占位符 (仅在编辑模式且 slot 为 null 时)
+                if (indexData === null) {
+                  return (
+                    <div key={`slot-${i}`} className="relative h-full">
+                      <div className="h-full p-4 rounded-xl flex flex-col gap-2 border-2 border-dashed border-white/20 bg-white/5 backdrop-blur-md flex items-center justify-center min-h-[120px]">
+                        <button 
+                          className="w-12 h-12 rounded-full border-2 border-dashed border-primary/50 bg-primary/10 flex items-center justify-center text-primary hover:bg-primary/20 transition-colors z-10"
+                          onClick={() => openAddModalForSlot(i)}
+                        >
+                          <Icon name="add" className="text-xl" />
+                        </button>
+                        <span className="text-slate-500 text-[10px] mt-2">添加指数</span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Case 2: 实体卡片
+                return (
+                  <div key={indexData.code} className={`relative ${isEditing ? 'animate-pulse-slow' : ''}`}>
+                    <GlassCard className={`p-4 rounded-xl flex flex-col gap-2 relative h-full ${isEditing ? 'border-primary/30' : ''}`}>
+                      
+                      {/* 编辑模式下的删除按钮 */}
+                      {isEditing && (
+                        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
                           <button 
-                            className="w-10 h-10 rounded-full border-2 border-dashed border-primary/50 bg-primary/10 flex items-center justify-center text-primary hover:bg-primary/20 transition-colors"
-                            onClick={openAddModal}
+                            className="w-12 h-12 rounded-full bg-red-500/20 backdrop-blur-md border border-red-500/50 flex items-center justify-center text-red-500 hover:bg-red-500/40 hover:scale-110 transition-all pointer-events-auto shadow-lg shadow-red-900/20"
+                            onClick={() => handleDeleteSlot(i)}
                           >
-                            +
+                            <Icon name="close" className="text-xl font-bold" />
                           </button>
                         </div>
+                      )}
+
+                      <div className={`flex items-center justify-between ${isEditing ? 'opacity-50 blur-[1px]' : ''}`}>
+                        <span className="text-white/70 text-sm font-medium truncate pr-2">{indexData.name}</span>
+                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold bg-${indexData.valuationColor === 'loss-green' ? 'green' : indexData.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/20 text-${indexData.valuationColor}`}>
+                          {indexData.valuationLevel}
+                        </span>
                       </div>
-                    );
-                  } else {
-                    // 显示正常卡片
-                    return (
-                      <div key={index.code} className={`relative ${isEditing ? 'backdrop-blur-sm opacity-70' : ''}`}>
-                        <GlassCard className="p-4 rounded-xl flex flex-col gap-2 relative">
-                          {isEditing && marketIndices.filter(i => !deletedIndices.includes(i.code)).length > 1 && (
-                            <button 
-                              className="absolute top-2 right-2 w-6 h-6 rounded-full bg-red-500/30 backdrop-blur-md flex items-center justify-center text-red-400 hover:bg-red-500/50 transition-colors"
-                              onClick={() => {
-                                if (marketIndices.filter(i => !deletedIndices.includes(i.code)).length > 1) {
-                                  setDeletedIndices([...deletedIndices, index.code]);
-                                }
-                              }}
-                            >
-                              ×
-                            </button>
-                          )}
-                          <div className="flex items-center justify-between">
-                            <span className="text-white/70 text-sm font-medium">{index.name}</span>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold bg-${index.valuationColor === 'loss-green' ? 'green' : index.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/20 text-${index.valuationColor}`}>
-                              {index.valuationLevel}
-                            </span>
-                          </div>
-                          <span className="text-white text-2xl font-bold">{index.price.toLocaleString()}</span>
-                          <span className={`text-sm font-semibold text-${index.changePercent >= 0 ? 'gain-red' : 'loss-green'}`}>
-                            {index.changePercent >= 0 ? '+' : ''}{index.changePercent.toFixed(2)}% ({index.change >= 0 ? '+' : ''}{index.change.toFixed(2)}) 
-                            <Icon name={index.changePercent >= 0 ? 'trending_up' : 'trending_down'} className="text-xs align-middle" />
-                          </span>
-                        </GlassCard>
+                      <div className={`flex flex-col ${isEditing ? 'opacity-50 blur-[1px]' : ''}`}>
+                        <span className="text-white text-2xl font-bold">{indexData.price.toLocaleString()}</span>
+                        <span className={`text-sm font-semibold text-${indexData.changePercent >= 0 ? 'gain-red' : 'loss-green'}`}>
+                          {indexData.changePercent >= 0 ? '+' : ''}{indexData.changePercent.toFixed(2)}% ({indexData.change >= 0 ? '+' : ''}{indexData.change.toFixed(2)}) 
+                          <Icon name={indexData.changePercent >= 0 ? 'trending_up' : 'trending_down'} className="text-xs align-middle ml-1" />
+                        </span>
                       </div>
-                    );
-                  }
-                })
-            ) : (
-              // 无数据状态
-              Array.from({ length: 4 }).map((_, index) => (
-                <GlassCard key={index} className="p-4 rounded-xl flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-300 text-sm font-medium">暂无数据</span>
-                    <span className="bg-slate-700/20 text-slate-400 text-[10px] px-1.5 py-0.5 rounded">
-                      --
-                    </span>
+                    </GlassCard>
                   </div>
-                  <div className="flex flex-col">
-                    <span className="text-white text-xl font-bold">--</span>
-                    <span className="text-slate-400 text-xs font-medium">--</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1 overflow-hidden">
-                    <div className="bg-slate-600 h-full w-0"></div>
-                  </div>
-                </GlassCard>
-              ))
+                );
+              })
             )}
+            
+            {/* 非编辑模式下，如果数据不足4个，这里不需要做额外填充，
+               因为题目要求"保存后未添加卡牌的空白处不显示任何卡片信息"。
+               grid布局会自动留白。
+            */}
           </div>
         </div>
 
@@ -525,35 +471,51 @@ export default function Home() {
       
       {/* 添加卡片模态框 */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md rounded-2xl p-5 w-[90%] max-w-[320px] border border-white/10 shadow-2xl">
-            <h4 className="text-white text-lg font-bold mb-4">添加市场指数</h4>
-            <div className="space-y-3 max-h-[300px] overflow-y-auto">
-              {availableIndices.length > 0 ? (
-                availableIndices.map((index) => (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-slate-900/90 backdrop-blur-xl rounded-2xl p-5 w-full max-w-[340px] border border-white/10 shadow-2xl flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-white text-lg font-bold">选择市场指数</h4>
+              <button 
+                onClick={() => setShowModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <Icon name="close" className="text-lg" />
+              </button>
+            </div>
+            
+            <div className="space-y-2 overflow-y-auto flex-1 pr-1 custom-scrollbar">
+              {getAvailableIndicesForModal().length > 0 ? (
+                getAvailableIndicesForModal().map((index) => (
                   <div 
                     key={index.code} 
-                    className="flex items-center justify-between p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
-                    onClick={() => addNewCard(index.code)}
+                    className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-primary/30 transition-all cursor-pointer group"
+                    onClick={() => selectIndexToAdd(index.code)}
                   >
                     <div>
-                      <span className="text-white text-sm font-medium">{index.name}</span>
-                      <span className="text-slate-400 text-xs ml-2">{index.code}</span>
+                      <div className="text-white text-sm font-bold group-hover:text-primary transition-colors">{index.name}</div>
+                      <div className="text-slate-400 text-[10px] mt-0.5">{index.code}</div>
                     </div>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold bg-${index.valuationColor === 'loss-green' ? 'green' : index.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/20 text-${index.valuationColor}`}>
-                      {index.valuationLevel}
-                    </span>
+                    <div className="text-right">
+                      <span className={`block text-[10px] px-1.5 py-0.5 rounded uppercase font-bold bg-${index.valuationColor === 'loss-green' ? 'green' : index.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/10 text-${index.valuationColor} mb-1`}>
+                        {index.valuationLevel}
+                      </span>
+                      <span className={`text-xs font-medium text-${index.changePercent >= 0 ? 'gain-red' : 'loss-green'}`}>
+                         {index.changePercent >= 0 ? '+' : ''}{index.changePercent.toFixed(2)}%
+                      </span>
+                    </div>
                   </div>
                 ))
               ) : (
-                <div className="text-center py-4 text-slate-400 text-sm">
-                  暂无可用指数
+                <div className="text-center py-8 text-slate-500 text-sm flex flex-col items-center">
+                  <Icon name="check_circle" className="text-3xl mb-2 text-slate-600" />
+                  已添加所有可用指数
                 </div>
               )}
             </div>
-            <div className="mt-5 flex justify-end">
+            
+            <div className="mt-4 pt-4 border-t border-white/10 flex justify-end">
               <button 
-                className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/80 transition-colors"
+                className="w-full py-3 bg-white/10 text-white rounded-xl text-sm font-bold hover:bg-white/20 transition-colors"
                 onClick={() => setShowModal(false)}
               >
                 取消
