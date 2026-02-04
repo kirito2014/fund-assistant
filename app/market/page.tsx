@@ -29,15 +29,47 @@ interface ApiMarketIndex {
   valuationColor: string;
 }
 
+// 指数代码映射（使用东方财富的指数代码格式）
+const INDEX_CODES = {
+  '1.000001': '上证指数',
+  '1.000300': '沪深300',
+  '0.399001': '深证成指',
+  '0.399006': '创业板指',
+  '0.399005': '中小板指',
+  '1.000688': '科创50'
+};
+
+// 国际市场指数代码映射（使用东方财富的国际指数代码）
+const INTERNATIONAL_INDEX_CODES = {
+  '100.NDX': '纳斯达克',
+  '100.DJIA': '道琼斯',
+  '100.SPX': '标普500',
+  '100.HSI': '恒生指数'
+};
+
+// 缓存键
+const CACHE_KEY = 'marketIndicesData';
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5分钟缓存
+
 export default function MarketPage() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
+  const [coreIndices, setCoreIndices] = useState<MarketIndex[]>([]);
   const [loading, setLoading] = useState(true);
+  const [chartLoading, setChartLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [clientTime, setClientTime] = useState<string>('');
   const [upCount, setUpCount] = useState(2840);
   const [downCount, setDownCount] = useState(1560);
   const [flatCount, setFlatCount] = useState(320);
+  const [isMounted, setIsMounted] = useState(true);
+
+  // 组件卸载时清理
+  useEffect(() => {
+    return () => {
+      setIsMounted(false);
+    };
+  }, []);
   
   // 图表引用
   const volumeChartRef = useRef<HTMLDivElement>(null);
@@ -62,46 +94,176 @@ export default function MarketPage() {
     { label: "资产", icon: "account_balance_wallet", href: "/portfolio" },
     { label: "我的", icon: "person", href: "/profile" },
   ];
+
+  // 获取模拟估值数据
+  function getMockValuation(code: string): number {
+    const valuations: { [key: string]: number } = {
+      '1.000001': 35,
+      '1.000300': 25,
+      '0.399001': 45,
+      '0.399006': 65,
+      '0.399005': 50,
+      '1.000688': 70,
+      '100.NDX': 55,
+      '100.DJIA': 75,
+      '100.SPX': 60,
+      '100.HSI': 25
+    };
+    return valuations[code] || 50;
+  }
+
+  // 获取估值水平
+  function getValuationLevel(valuation: number): { level: string; color: string } {
+    if (valuation < 20) {
+      return { level: '极低估', color: 'loss-green' };
+    } else if (valuation < 40) {
+      return { level: '低估', color: 'loss-green' };
+    } else if (valuation < 60) {
+      return { level: '正常', color: 'yellow-400' };
+    } else if (valuation < 80) {
+      return { level: '高估', color: 'gain-red' };
+    } else {
+      return { level: '极高估', color: 'gain-red' };
+    }
+  }
+
+  // 从缓存获取数据
+  const getCachedData = (): MarketIndex[] | null => {
+    try {
+      const cachedData = localStorage.getItem(CACHE_KEY);
+      if (cachedData) {
+        const { data, timestamp } = JSON.parse(cachedData);
+        if (Date.now() - timestamp < CACHE_EXPIRY) {
+          return data;
+        }
+      }
+    } catch (error) {
+      console.error('读取缓存失败:', error);
+    }
+    return null;
+  };
+
+  // 保存数据到缓存
+  const saveToCache = (data: MarketIndex[]) => {
+    try {
+      const cacheData = {
+        data,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error('保存缓存失败:', error);
+    }
+  };
   
   // 获取市场指数数据
   const fetchMarketData = async () => {
     try {
-      setLoading(true);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      // 先尝试从缓存获取数据
+      const cachedData = getCachedData();
+      if (cachedData && isMounted) {
+        setMarketIndices(cachedData);
+        setCoreIndices(cachedData.slice(0, 4));
+        setLoading(false);
+        setLastUpdated(new Date());
+        return;
+      }
+
+      if (isMounted) {
+        setLoading(true);
+      }
       
-      // 调用现有的市场估值API获取真实数据（包括国际市场）
-      const response = await fetch('/api/market-valuation', {
-        signal: controller.signal,
-        cache: 'no-cache'
-      });
+      // 合并所有指数代码
+      const allIndexCodes = {
+        ...INDEX_CODES,
+        ...INTERNATIONAL_INDEX_CODES
+      };
+
+      // 构建指数代码字符串
+      const secids = Object.keys(allIndexCodes).join(',');
+
+      // 东方财富API URL - 获取基本市场数据
+      const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
+
+      // 获取数据
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch market data');
+      }
+
+      const data: any = await response.json();
       
-      clearTimeout(timeoutId);
+      // 处理数据
+      const indices: MarketIndex[] = [];
       
-      if (response.ok) {
-        const data: ApiMarketIndex[] = await response.json();
+      // 处理所有市场数据
+      if (data.data && data.data.diff) {
+        const allIndices = data.data.diff.map((item: { f12: string; f13: number; f14: string; f2: number; f4: number; f3: number }) => {
+          // 构建完整的指数代码
+          const code = item.f12;
+          const marketCode = item.f13;
+          const fullCode = `${marketCode}.${code}`;
+          
+          // 获取指数名称
+          const name = allIndexCodes[fullCode as keyof typeof allIndexCodes] || item.f14;
+          const price = item.f2;
+          const change = item.f4;
+          const changePercent = item.f3;
+          
+          // 获取估值数据
+          const valuation = getMockValuation(fullCode);
+          const { level, color } = getValuationLevel(valuation);
+
+          // 转换为前端使用的代码格式
+          let frontendCode = fullCode;
+          if (fullCode.startsWith('1.')) {
+            frontendCode = `sh${fullCode.slice(2)}`;
+          } else if (fullCode.startsWith('0.')) {
+            frontendCode = `sz${fullCode.slice(2)}`;
+          } else if (fullCode.startsWith('100.')) {
+            // 国际指数映射
+            const codeMap: { [key: string]: string } = {
+              '100.NDX': 'nasdaq',
+              '100.DJIA': 'dowjones',
+              '100.SPX': 'sp500',
+              '100.HSI': 'hangseng'
+            };
+            frontendCode = codeMap[fullCode] || fullCode;
+          }
+
+          return {
+            code: frontendCode,
+            name,
+            val: price.toLocaleString(),
+            change: `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
+            isUp: changePercent >= 0,
+            status: level,
+            statusColor: `text-${color} bg-${color === 'loss-green' ? 'green' : color === 'gain-red' ? 'red' : 'yellow'}-500/20`
+          };
+        });
         
-        // 转换API数据格式为前端需要的格式
-        const formattedData: MarketIndex[] = data.map(item => ({
-          code: item.code,
-          name: item.name,
-          val: item.price.toLocaleString(),
-          change: `${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toFixed(2)}%`,
-          isUp: item.changePercent >= 0,
-          status: item.valuationLevel,
-          statusColor: `text-${item.valuationColor} bg-${item.valuationColor === 'loss-green' ? 'green' : item.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/20`
-        }));
-        
-        // 直接使用API返回的所有数据（包括国际市场）
-        setMarketIndices(formattedData);
+        indices.push(...allIndices);
+      }
+
+      // 保存到缓存
+      saveToCache(indices);
+      
+      // 设置数据
+      if (isMounted) {
+        setMarketIndices(indices);
+        setCoreIndices(indices.slice(0, 4)); // 优先展示核心指数
         setLastUpdated(new Date());
       }
     } catch (error) {
       console.error('获取市场数据失败:', error);
       // 错误时使用模拟数据
-      useMockData();
+      if (isMounted) {
+        useMockData();
+      }
     } finally {
-      setLoading(false);
+      if (isMounted) {
+        setLoading(false);
+      }
     }
   };
   
@@ -181,12 +343,19 @@ export default function MarketPage() {
         statusColor: "text-loss-green bg-loss-green/20",
       },
     ];
-    setMarketIndices(mockData);
-    setLastUpdated(new Date());
+    if (isMounted) {
+      setMarketIndices(mockData);
+      setCoreIndices(mockData.slice(0, 4));
+      setLastUpdated(new Date());
+    }
   };
   
   // 刷新数据
   const handleRefresh = async () => {
+    if (!isMounted) return;
+    
+    // 清除缓存，强制刷新
+    localStorage.removeItem(CACHE_KEY);
     await fetchMarketData();
   };
   
@@ -194,10 +363,36 @@ export default function MarketPage() {
     // 初始加载数据
     fetchMarketData();
   }, []);
+
+  // 异步加载图表数据
+  useEffect(() => {
+    // 延迟加载图表数据，优先展示指数数据
+    const loadChartData = async () => {
+      if (isMounted) {
+        setChartLoading(true);
+      }
+      try {
+        // 模拟图表数据加载延迟
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        // 这里可以添加真实的图表数据获取逻辑
+      } catch (error) {
+        console.error('加载图表数据失败:', error);
+      } finally {
+        if (isMounted) {
+          setChartLoading(false);
+        }
+      }
+    };
+
+    // 指数数据加载完成后再加载图表数据
+    if (!loading && isMounted) {
+      loadChartData();
+    }
+  }, [loading, isMounted]);
   
   // 初始化和更新成交量图表
   useEffect(() => {
-    if (volumeChartRef.current) {
+    if (volumeChartRef.current && isMounted) {
       // 初始化图表
       if (!volumeChartInstance.current) {
         volumeChartInstance.current = echarts.init(volumeChartRef.current);
@@ -294,21 +489,25 @@ export default function MarketPage() {
       
       // 响应式处理
       const handleResize = () => {
-        volumeChartInstance.current?.resize();
+        if (volumeChartInstance.current && isMounted) {
+          volumeChartInstance.current.resize();
+        }
       };
       
       window.addEventListener('resize', handleResize);
       
       return () => {
         window.removeEventListener('resize', handleResize);
-        volumeChartInstance.current?.dispose();
-        volumeChartInstance.current = null;
+        if (volumeChartInstance.current) {
+          volumeChartInstance.current.dispose();
+          volumeChartInstance.current = null;
+        }
       };
     }
-  }, [volumeData, timeLabels]);
+  }, [volumeData, timeLabels, isMounted]);
   
   // 根据展开状态过滤显示的指数
-  const displayIndices = isExpanded ? marketIndices : marketIndices.slice(0, 4);
+  const displayIndices = isExpanded ? marketIndices : coreIndices;
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[430px] mx-auto overflow-x-hidden shadow-2xl bg-background-light dark:bg-background-dark font-display text-white">
@@ -492,7 +691,16 @@ export default function MarketPage() {
               <h3 className="text-white text-lg font-bold">两市合计成交额</h3>
               <span className="text-white/40 text-xs">单位：亿元</span>
             </div>
-            <div ref={volumeChartRef} style={{ width: '100%', height: '300px' }}></div>
+            {chartLoading ? (
+              <div className="w-full h-[300px] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                  <span className="text-white/60 text-sm">加载图表数据中...</span>
+                </div>
+              </div>
+            ) : (
+              <div ref={volumeChartRef} style={{ width: '100%', height: '300px' }}></div>
+            )}
           </GlassCard>
         </section>
 

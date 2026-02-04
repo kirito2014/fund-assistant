@@ -18,19 +18,51 @@ interface MarketIndex {
   valuationColor: string;
 }
 
-// 预定义的10个完整市场指数数据源
-const ALL_MARKET_INDICES: MarketIndex[] = [
-  { code: 'sh000001', name: '上证指数', price: 3125.25, change: 15.62, changePercent: 0.50, valuation: 35, valuationLevel: '低估', valuationColor: 'loss-green' },
-  { code: 'sh000300', name: '沪深300', price: 3852.12, change: 20.05, changePercent: 0.52, valuation: 25, valuationLevel: '低估', valuationColor: 'loss-green' },
-  { code: 'sz399001', name: '深证成指', price: 10256.78, change: -52.34, changePercent: -0.51, valuation: 45, valuationLevel: '正常', valuationColor: 'yellow-400' },
-  { code: 'sz399006', name: '创业板指', price: 1782.30, change: 21.85, changePercent: 1.24, valuation: 65, valuationLevel: '高估', valuationColor: 'gain-red' },
-  { code: 'sz399005', name: '中小板指', price: 8521.63, change: -125.36, changePercent: -1.45, valuation: 40, valuationLevel: '正常', valuationColor: 'yellow-400' },
-  { code: 'sh000688', name: '科创50', price: 987.45, change: 15.67, changePercent: 1.61, valuation: 55, valuationLevel: '正常', valuationColor: 'yellow-400' },
-  { code: 'sh000905', name: '中证500', price: 5621.33, change: -12.44, changePercent: -0.22, valuation: 30, valuationLevel: '低估', valuationColor: 'loss-green' },
-  { code: 'sh000852', name: '中证1000', price: 6102.45, change: 45.22, changePercent: 0.75, valuation: 50, valuationLevel: '正常', valuationColor: 'yellow-400' },
-  { code: 'hkHSI', name: '恒生指数', price: 17500.20, change: -200.50, changePercent: -1.13, valuation: 20, valuationLevel: '极低', valuationColor: 'loss-green' },
-  { code: 'usSPX', name: '标普500', price: 4780.15, change: 10.50, changePercent: 0.22, valuation: 80, valuationLevel: '高估', valuationColor: 'gain-red' },
-];
+// 指数代码映射（使用东方财富的指数代码格式）
+const INDEX_CODES_MAP: Record<string, string> = {
+  'sh000001': '1.000001',
+  'sh000300': '1.000300',
+  'sz399001': '0.399001',
+  'sz399006': '0.399006',
+  'sz399005': '0.399005',
+  'sh000688': '1.000688',
+  'sh000905': '1.000905',
+  'sh000852': '1.000852',
+  'hkHSI': '100.HSI',
+  'usSPX': '100.SPX'
+};
+
+// 反向映射，用于从东方财富代码获取前端代码
+const REVERSE_INDEX_CODES_MAP: Record<string, string> = {
+  '1.000001': 'sh000001',
+  '1.000300': 'sh000300',
+  '0.399001': 'sz399001',
+  '0.399006': 'sz399006',
+  '0.399005': 'sz399005',
+  '1.000688': 'sh000688',
+  '1.000905': 'sh000905',
+  '1.000852': 'sh000852',
+  '100.HSI': 'hkHSI',
+  '100.SPX': 'usSPX'
+};
+
+// 指数名称映射
+const INDEX_NAMES_MAP: Record<string, string> = {
+  '1.000001': '上证指数',
+  '1.000300': '沪深300',
+  '0.399001': '深证成指',
+  '0.399006': '创业板指',
+  '0.399005': '中小板指',
+  '1.000688': '科创50',
+  '1.000905': '中证500',
+  '1.000852': '中证1000',
+  '100.HSI': '恒生指数',
+  '100.SPX': '标普500'
+};
+
+// 缓存键
+const HOME_CACHE_KEY = 'homeMarketIndicesData';
+const HOME_CACHE_EXPIRY = 5 * 60 * 1000; // 5分钟缓存
 
 export default function Home() {
   const [marketStatus, setMarketStatus] = useState({
@@ -52,17 +84,27 @@ export default function Home() {
   
   // 当前正在操作的占位符索引
   const [activePlaceholderIndex, setActivePlaceholderIndex] = useState<number | null>(null);
+  
+  // 组件挂载状态
+  const [isMounted, setIsMounted] = useState(true);
 
   // 客户端渲染时设置时间
   useEffect(() => {
     setClientTime(lastUpdated.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
   }, [lastUpdated]);
 
+  // 组件卸载时清理
+  useEffect(() => {
+    return () => {
+      setIsMounted(false);
+    };
+  }, []);
+
   // 获取市场状态
   const fetchMarketStatus = async () => {
     try {
       const response = await fetch('/api/market-status');
-      if (response.ok) {
+      if (response.ok && isMounted) {
         const data = await response.json();
         setMarketStatus({
           status: data.status,
@@ -74,51 +116,204 @@ export default function Home() {
     }
   };
 
+  // 获取模拟估值数据
+  const getMockValuation = (code: string): number => {
+    const valuations: Record<string, number> = {
+      '1.000001': 35,
+      '1.000300': 25,
+      '0.399001': 45,
+      '0.399006': 65,
+      '0.399005': 50,
+      '1.000688': 70,
+      '1.000905': 30,
+      '1.000852': 50,
+      '100.HSI': 20,
+      '100.SPX': 80
+    };
+    return valuations[code] || 50;
+  };
+
+  // 获取估值水平
+  const getValuationLevel = (valuation: number): { level: string; color: string } => {
+    if (valuation < 20) {
+      return { level: '极低', color: 'loss-green' };
+    } else if (valuation < 40) {
+      return { level: '低估', color: 'loss-green' };
+    } else if (valuation < 60) {
+      return { level: '正常', color: 'yellow-400' };
+    } else if (valuation < 80) {
+      return { level: '高估', color: 'gain-red' };
+    } else {
+      return { level: '极高估', color: 'gain-red' };
+    }
+  };
+
+  // 从缓存获取数据
+  const getCachedData = (): MarketIndex[] | null => {
+    try {
+      const cachedData = localStorage.getItem(HOME_CACHE_KEY);
+      if (cachedData) {
+        const { data, timestamp } = JSON.parse(cachedData);
+        if (Date.now() - timestamp < HOME_CACHE_EXPIRY) {
+          return data;
+        }
+      }
+    } catch (error) {
+      console.error('读取缓存失败:', error);
+    }
+    return null;
+  };
+
+  // 保存数据到缓存
+  const saveToCache = (data: MarketIndex[]) => {
+    try {
+      const cacheData = {
+        data,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(HOME_CACHE_KEY, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error('保存缓存失败:', error);
+    }
+  };
+
   // 获取市场指数估值
   const fetchMarketValuation = async () => {
     try {
       setLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 500));
       
       const savedConfig = localStorage.getItem('marketIndicesConfig');
-      let initialIndices: MarketIndex[] = [];
+      let savedCodes: string[] = [];
 
       if (savedConfig) {
         try {
-          const savedCodes: string[] = JSON.parse(savedConfig);
-          initialIndices = savedCodes
-            .map(code => ALL_MARKET_INDICES.find(item => item.code === code))
-            .filter((item): item is MarketIndex => Boolean(item));
+          savedCodes = JSON.parse(savedConfig);
         } catch (e) {
           console.error('解析保存的配置失败:', e);
-          initialIndices = ALL_MARKET_INDICES.slice(0, 4);
+          savedCodes = ['sh000001', 'sh000300', 'sz399001', 'sz399006'];
         }
       } else {
         // 默认显示前4个
-        initialIndices = ALL_MARKET_INDICES.slice(0, 4);
-      }
-      
-      // 兜底至少显示1个
-      if (initialIndices.length === 0) {
-        initialIndices = [ALL_MARKET_INDICES[0]];
-      }
-      
-      // 确保不超过4个
-      if (initialIndices.length > 4) {
-        initialIndices = initialIndices.slice(0, 4);
+        savedCodes = ['sh000001', 'sh000300', 'sz399001', 'sz399006'];
       }
 
-      setMarketIndices(initialIndices);
-      setLastUpdated(new Date());
+      // 尝试从缓存获取数据
+      const cachedData = getCachedData();
+      if (cachedData && isMounted) {
+        // 检查缓存数据是否包含当前所有需要的指数
+        const cachedCodes = cachedData.map(item => item.code);
+        const hasAllCodes = savedCodes.every(code => cachedCodes.includes(code));
+        
+        if (hasAllCodes) {
+          // 过滤出当前需要的指数
+          const filteredIndices = cachedData.filter(item => savedCodes.includes(item.code));
+          setMarketIndices(filteredIndices);
+          setLastUpdated(new Date());
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 构建东方财富API需要的指数代码
+      const eastMoneyCodes = savedCodes
+        .map(code => INDEX_CODES_MAP[code])
+        .filter((code): code is string => Boolean(code));
+
+      if (eastMoneyCodes.length === 0) {
+        // 兜底至少显示1个
+        eastMoneyCodes.push('1.000001');
+      }
+
+      // 构建指数代码字符串
+      const secids = eastMoneyCodes.join(',');
+
+      // 东方财富API URL - 获取基本市场数据
+      const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
+
+      // 获取数据
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch market data');
+      }
+
+      const data: any = await response.json();
+      
+      // 处理数据
+      const indices: MarketIndex[] = [];
+      
+      // 处理所有市场数据
+      if (data.data && data.data.diff) {
+        const allIndices = data.data.diff.map((item: { f12: string; f13: number; f14: string; f2: number; f4: number; f3: number }) => {
+          // 构建完整的指数代码
+          const code = item.f12;
+          const marketCode = item.f13;
+          const fullCode = `${marketCode}.${code}`;
+          
+          // 获取前端使用的代码
+          const frontendCode = REVERSE_INDEX_CODES_MAP[fullCode] || fullCode;
+          
+          // 获取指数名称
+          const name = INDEX_NAMES_MAP[fullCode] || item.f14;
+          const price = item.f2;
+          const change = item.f4;
+          const changePercent = item.f3;
+          
+          // 获取估值数据
+          const valuation = getMockValuation(fullCode);
+          const { level, color } = getValuationLevel(valuation);
+
+          return {
+            code: frontendCode,
+            name,
+            price,
+            change,
+            changePercent,
+            valuation,
+            valuationLevel: level,
+            valuationColor: color
+          };
+        });
+        
+        indices.push(...allIndices);
+      }
+
+      // 保存到缓存
+      saveToCache(indices);
+
+      // 过滤出当前需要的指数
+      const filteredIndices = indices.filter(item => savedCodes.includes(item.code));
+      
+      // 兜底至少显示1个
+      if (filteredIndices.length === 0 && indices.length > 0) {
+        filteredIndices.push(indices[0]);
+      }
+
+      if (isMounted) {
+        setMarketIndices(filteredIndices);
+        setLastUpdated(new Date());
+      }
     } catch (error) {
       console.error('获取市场指数估值失败:', error);
-      setMarketIndices(ALL_MARKET_INDICES.slice(0, 4));
+      // 错误时使用默认数据
+      const defaultIndices: MarketIndex[] = [
+        { code: 'sh000001', name: '上证指数', price: 3125.25, change: 15.62, changePercent: 0.50, valuation: 35, valuationLevel: '低估', valuationColor: 'loss-green' },
+        { code: 'sh000300', name: '沪深300', price: 3852.12, change: 20.05, changePercent: 0.52, valuation: 25, valuationLevel: '低估', valuationColor: 'loss-green' },
+        { code: 'sz399001', name: '深证成指', price: 10256.78, change: -52.34, changePercent: -0.51, valuation: 45, valuationLevel: '正常', valuationColor: 'yellow-400' },
+        { code: 'sz399006', name: '创业板指', price: 1782.30, change: 21.85, changePercent: 1.24, valuation: 65, valuationLevel: '高估', valuationColor: 'gain-red' }
+      ];
+      if (isMounted) {
+        setMarketIndices(defaultIndices);
+      }
     } finally {
-      setLoading(false);
+      if (isMounted) {
+        setLoading(false);
+      }
     }
   };
 
   const handleRefresh = async () => {
+    // 清除缓存，强制获取最新数据
+    localStorage.removeItem(HOME_CACHE_KEY);
     await Promise.all([
       fetchMarketStatus(),
       fetchMarketValuation()
@@ -141,7 +336,7 @@ export default function Home() {
   };
 
   // 保存变更：核心逻辑修改
-  const saveChanges = () => {
+  const saveChanges = async () => {
     // 过滤掉 null 占位符，实现自动压缩/移位
     // 例如：[A, null, B, null] -> [A, B]
     // 这样渲染时，A和B自然会占据第一行的两个位置
@@ -151,6 +346,12 @@ export default function Home() {
     
     const currentCodes = compactedIndices.map(index => index.code);
     localStorage.setItem('marketIndicesConfig', JSON.stringify(currentCodes));
+    
+    // 清除缓存，确保下次获取最新数据
+    localStorage.removeItem(HOME_CACHE_KEY);
+    
+    // 重新获取数据，确保显示最新的指数信息
+    await fetchMarketValuation();
     
     setIsEditing(false);
   };
@@ -174,10 +375,24 @@ export default function Home() {
     setShowModal(true);
   };
   
+  // 预定义的10个完整市场指数数据源
+  const ALL_MARKET_INDICES: MarketIndex[] = [
+    { code: 'sh000001', name: '上证指数', price: 3125.25, change: 15.62, changePercent: 0.50, valuation: 35, valuationLevel: '低估', valuationColor: 'loss-green' },
+    { code: 'sh000300', name: '沪深300', price: 3852.12, change: 20.05, changePercent: 0.52, valuation: 25, valuationLevel: '低估', valuationColor: 'loss-green' },
+    { code: 'sz399001', name: '深证成指', price: 10256.78, change: -52.34, changePercent: -0.51, valuation: 45, valuationLevel: '正常', valuationColor: 'yellow-400' },
+    { code: 'sz399006', name: '创业板指', price: 1782.30, change: 21.85, changePercent: 1.24, valuation: 65, valuationLevel: '高估', valuationColor: 'gain-red' },
+    { code: 'sz399005', name: '中小板指', price: 8521.63, change: -125.36, changePercent: -1.45, valuation: 40, valuationLevel: '正常', valuationColor: 'yellow-400' },
+    { code: 'sh000688', name: '科创50', price: 987.45, change: 15.67, changePercent: 1.61, valuation: 55, valuationLevel: '正常', valuationColor: 'yellow-400' },
+    { code: 'sh000905', name: '中证500', price: 5621.33, change: -12.44, changePercent: -0.22, valuation: 30, valuationLevel: '低估', valuationColor: 'loss-green' },
+    { code: 'sh000852', name: '中证1000', price: 6102.45, change: 45.22, changePercent: 0.75, valuation: 50, valuationLevel: '正常', valuationColor: 'yellow-400' },
+    { code: 'hkHSI', name: '恒生指数', price: 17500.20, change: -200.50, changePercent: -1.13, valuation: 20, valuationLevel: '极低', valuationColor: 'loss-green' },
+    { code: 'usSPX', name: '标普500', price: 4780.15, change: 10.50, changePercent: 0.22, valuation: 80, valuationLevel: '高估', valuationColor: 'gain-red' },
+  ];
+
   const selectIndexToAdd = (indexCode: string) => {
     if (activePlaceholderIndex === null) return;
 
-    const selectedIndex = ALL_MARKET_INDICES.find(i => i.code === indexCode);
+    const selectedIndex = ALL_MARKET_INDICES.find((i: MarketIndex) => i.code === indexCode);
     if (selectedIndex) {
       const newSlots = [...editSlots];
       newSlots[activePlaceholderIndex] = selectedIndex;
@@ -193,7 +408,7 @@ export default function Home() {
       .filter((item): item is MarketIndex => item !== null)
       .map(item => item.code);
 
-    return ALL_MARKET_INDICES.filter(item => !currentActiveCodes.includes(item.code));
+    return ALL_MARKET_INDICES.filter((item: MarketIndex) => !currentActiveCodes.includes(item.code));
   };
 
   useEffect(() => {
@@ -485,7 +700,7 @@ export default function Home() {
             
             <div className="space-y-2 overflow-y-auto flex-1 pr-1 custom-scrollbar">
               {getAvailableIndicesForModal().length > 0 ? (
-                getAvailableIndicesForModal().map((index) => (
+                getAvailableIndicesForModal().map((index: MarketIndex) => (
                   <div 
                     key={index.code} 
                     className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-primary/30 transition-all cursor-pointer group"
