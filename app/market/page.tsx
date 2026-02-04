@@ -75,6 +75,22 @@ export default function MarketPage() {
     { label: "我的", icon: "person", href: "/profile" },
   ];
 
+  // ----------------------------------------------------------------
+  // 新增功能: 获取估值角标样式 (圆角矩形)
+  // ----------------------------------------------------------------
+  const getBadgeStyle = (colorKey: string) => {
+     const baseStyle = "shrink-0 text-[10px] px-2 py-0.5 rounded-md font-bold transition-colors";
+    switch (colorKey) {
+      case 'loss-green': // 低估
+        return `${baseStyle} bg-emerald-500/10 text-emerald-400`;
+      case 'gain-red':   // 高估
+        return `${baseStyle} bg-red-500/10 text-red-400`;
+      case 'yellow-400': // 正常
+      default:
+        return `${baseStyle} bg-yellow-500/10 text-yellow-400`;
+    }
+  };
+
   // 获取模拟估值数据
   function getMockValuation(code: string): number {
     const valuations: { [key: string]: number } = {
@@ -196,7 +212,7 @@ export default function MarketPage() {
             change: `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
             isUp: changePercent >= 0,
             status: level,
-            statusColor: `text-${color} bg-${color === 'loss-green' ? 'green' : color === 'gain-red' ? 'red' : 'yellow'}-500/20`
+            statusColor: color // 修改：只保存颜色Key (如 'loss-green')，不带 text- 前缀
           };
         });
         
@@ -217,15 +233,16 @@ export default function MarketPage() {
   
   // 使用模拟数据
   const useMockData = () => {
+    // 修改：statusColor 只保留颜色 Key，统一使用 yellow-400 替代 primary
     const mockData: MarketIndex[] = [
-      { code: "sh000001", name: "上证指数", val: "3050.12", change: "+0.45%", isUp: true, status: "高估", statusColor: "text-gain-red bg-gain-red/20" },
-      { code: "sz399001", name: "深证成指", val: "10020.45", change: "-0.12%", isUp: false, status: "适中", statusColor: "text-primary bg-primary/20" },
-      { code: "sz399006", name: "创业板指", val: "1850.32", change: "+1.20%", isUp: true, status: "极低", statusColor: "text-loss-green bg-loss-green/20" },
-      { code: "sh000300", name: "沪深300", val: "3540.10", change: "+0.30%", isUp: true, status: "适中", statusColor: "text-primary bg-primary/20" },
-      { code: "nasdaq", name: "纳斯达克", val: "14823.45", change: "+0.85%", isUp: true, status: "适中", statusColor: "text-primary bg-primary/20" },
-      { code: "dowjones", name: "道琼斯", val: "37245.10", change: "+0.32%", isUp: true, status: "高估", statusColor: "text-gain-red bg-gain-red/20" },
-      { code: "sp500", name: "标普500", val: "4856.78", change: "+0.58%", isUp: true, status: "适中", statusColor: "text-primary bg-primary/20" },
-      { code: "hangseng", name: "恒生指数", val: "16825.30", change: "-0.65%", isUp: false, status: "极低", statusColor: "text-loss-green bg-loss-green/20" },
+      { code: "sh000001", name: "上证指数", val: "3050.12", change: "+0.45%", isUp: true, status: "高估", statusColor: "gain-red" },
+      { code: "sz399001", name: "深证成指", val: "10020.45", change: "-0.12%", isUp: false, status: "适中", statusColor: "yellow-400" },
+      { code: "sz399006", name: "创业板指", val: "1850.32", change: "+1.20%", isUp: true, status: "极低", statusColor: "loss-green" },
+      { code: "sh000300", name: "沪深300", val: "3540.10", change: "+0.30%", isUp: true, status: "适中", statusColor: "yellow-400" },
+      { code: "nasdaq", name: "纳斯达克", val: "14823.45", change: "+0.85%", isUp: true, status: "适中", statusColor: "yellow-400" },
+      { code: "dowjones", name: "道琼斯", val: "37245.10", change: "+0.32%", isUp: true, status: "高估", statusColor: "gain-red" },
+      { code: "sp500", name: "标普500", val: "4856.78", change: "+0.58%", isUp: true, status: "适中", statusColor: "yellow-400" },
+      { code: "hangseng", name: "恒生指数", val: "16825.30", change: "-0.65%", isUp: false, status: "极低", statusColor: "loss-green" },
     ];
     setMarketIndices(mockData);
     setCoreIndices(mockData.slice(0, 4));
@@ -378,7 +395,7 @@ export default function MarketPage() {
         <section className="p-4">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-white text-lg font-bold">市场指数估值</h3>
-            <button className="text-primary text-sm font-medium">点击查看详情</button>
+            <button className="text-primary text-xs font-medium">点击查看详情</button>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {loading ? (
@@ -401,7 +418,8 @@ export default function MarketPage() {
                 <GlassCard key={item.code} className="p-4 rounded-xl flex flex-col gap-2">
                   <div className="flex justify-between items-start">
                     <p className="text-white/70 text-sm font-medium">{item.name}</p>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${item.statusColor}`}>
+                    {/* 修改：使用 getBadgeStyle 应用圆角矩形样式 */}
+                    <span className={getBadgeStyle(item.statusColor)}>
                       {item.status}
                     </span>
                   </div>

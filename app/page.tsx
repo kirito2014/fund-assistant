@@ -196,15 +196,15 @@ export default function Home() {
   // UI 辅助：估值角标样式 (保持圆角矩形)
   // ----------------------------------------------------------------
   const getBadgeStyle = (colorKey: string) => {
-    const baseStyle = "shrink-0 text-[10px] px-2 py-0.5 rounded-md font-bold transition-colors border";
+    const baseStyle = "shrink-0 text-[10px] px-2 py-0.5 rounded-md font-bold transition-colors";
     switch (colorKey) {
       case 'loss-green': // 低估
-        return `${baseStyle} bg-emerald-500/10 text-emerald-400 border-emerald-500/20`;
+        return `${baseStyle} bg-emerald-500/10 text-emerald-400 `;
       case 'gain-red':   // 高估
-        return `${baseStyle} bg-red-500/10 text-red-400 border-red-500/20`;
+        return `${baseStyle} bg-red-500/10 text-red-400`;
       case 'yellow-400': // 正常
       default:
-        return `${baseStyle} bg-yellow-500/10 text-yellow-400 border-yellow-500/20`;
+        return `${baseStyle} bg-yellow-500/10 text-yellow-400`;
     }
   };
 
