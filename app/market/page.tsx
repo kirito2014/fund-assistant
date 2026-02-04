@@ -376,6 +376,10 @@ export default function MarketPage() {
       <main className="flex-1 pb-24">
         {/* Market Indices Grid */}
         <section className="p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-white text-lg font-bold">市场指数估值</h3>
+            <button className="text-primary text-sm font-medium">点击查看详情</button>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             {loading ? (
               Array.from({ length: 4 }).map((_, index) => (
