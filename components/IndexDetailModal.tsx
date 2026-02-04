@@ -63,6 +63,11 @@ export function IndexDetailModal({ isOpen, onClose, indexInfo }: IndexDetailModa
     // 这里暂略美股复杂时间段，默认走 A 股逻辑
     return timeArr;
   };
+  
+  // 生成主要时间标签
+  const generateMainTimeLabels = () => {
+    return ['09:30', '10:30', '11:30/13:00', '14:00', '15:00'];
+  };
 
   // ----------------------------------------------------------------
   // 数据获取
@@ -170,20 +175,48 @@ export function IndexDetailModal({ isOpen, onClose, indexInfo }: IndexDetailModa
         { left: 50, right: 50, top: '70%', height: '20%' } 
       ],
       xAxis: [
+        // 上轴：价格时间
         {
           type: 'category',
           data: timeData,
-          axisLine: { lineStyle: { color: '#444' } },
-          axisLabel: { color: '#888', interval: 'auto' }, 
+          axisLine: { show: false },
+          axisLabel: {
+            color: '#999',
+            interval: 59, // 每60分钟显示一个标签，即整点
+            formatter: (value: any, index: number) => {
+              // 只显示指定的时间标签
+              const mainLabels = generateMainTimeLabels();
+              if (index === 0) return '09:30';
+              if (index === 60) return '10:30';
+              if (index === 120) return '11:30/13:00';
+              if (index === 180) return '14:00';
+              if (index === timeData.length - 1) return '15:00';
+              return '';
+            }
+          },
+          axisTick: { show: false },
           boundaryGap: false
         },
+        // 下轴：成交量时间
         {
           type: 'category',
           gridIndex: 1,
           data: timeData,
-          axisLine: { show: false },
-          axisLabel: { show: false },
-          axisTick: { show: false },
+          axisLine: { show: true, lineStyle: { color: '#444' } },
+          axisLabel: {
+            color: '#999',
+            interval: 0, // 显示所有标签
+            formatter: (value: any) => {
+              // 只显示指定的时间标签
+              if (value === '09:30') return '09:30';
+              if (value === '10:30') return '10:30';
+              if (value === '11:30') return '11:30/13:00';
+              if (value === '14:00') return '14:00';
+              if (value === '15:00') return '15:00';
+              return '';
+            }
+          },
+          axisTick: { show: true, lineStyle: { color: '#444' } },
           boundaryGap: false
         }
       ],
@@ -224,9 +257,16 @@ export function IndexDetailModal({ isOpen, onClose, indexInfo }: IndexDetailModa
         {
           type: 'value',
           gridIndex: 1,
-          splitLine: { show: false },
-          axisLabel: { show: false },
-          axisTick: { show: false }
+          name: '万元',
+          nameTextStyle: { color: '#999', fontSize: 12 },
+          splitLine: { show: false }, // 去除金额的横轴虚线
+          axisLabel: {
+            show: true,
+            color: '#999',
+            formatter: (val: number) => (val / 10000).toFixed(0)
+          },
+          axisTick: { show: true, lineStyle: { color: '#444' } },
+          axisLine: { show: true, lineStyle: { color: '#444' } }
         }
       ],
       series: [
@@ -266,6 +306,42 @@ export function IndexDetailModal({ isOpen, onClose, indexInfo }: IndexDetailModa
               return prices[i] >= prices[i-1] ? '#ef4444' : '#10b981';
             }
           }
+        },
+        // 添加时间竖线
+        {
+          name: 'TimeLine',
+          type: 'custom',
+          renderItem: (params: any, api: any) => {
+            const xValue = api.value(0);
+            const start = api.coord([xValue, api.value(1)]);
+            const end = api.coord([xValue, api.value(2)]);
+            return {
+              type: 'group',
+              children: [
+                {
+                  type: 'line',
+                  shape: {
+                    x1: start[0],
+                    y1: start[1],
+                    x2: end[0],
+                    y2: end[1]
+                  },
+                  style: {
+                    stroke: '#444',
+                    lineWidth: 1,
+                    lineDash: [2, 2]
+                  }
+                }
+              ]
+            };
+          },
+          // 生成时间竖线数据
+          data: timeData.map((time, index) => {
+            if (time === '09:30' || time === '10:30' || time === '11:30' || time === '14:00' || time === '15:00') {
+              return [index, yMin, yMax];
+            }
+            return [];
+          }).filter(item => item.length > 0)
         }
       ]
     };
@@ -311,7 +387,7 @@ export function IndexDetailModal({ isOpen, onClose, indexInfo }: IndexDetailModa
           relative bg-[#1e1e1e] border border-white/10 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ease-in-out
           ${isLandscape 
             ? 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vh] h-[90vw] rotate-90' 
-            : 'w-full max-w-[400px] h-[500px]'
+            : 'w-full max-w-[400px] h-[700px]'
           }
         `}
       >
