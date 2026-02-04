@@ -6,11 +6,25 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
 import { BottomNav } from "@/components/BottomNav";
 
+// 市场指数类型定义
+interface MarketIndex {
+  code: string;
+  name: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  valuation: number;
+  valuationLevel: string;
+  valuationColor: string;
+}
+
 export default function Home() {
   const [marketStatus, setMarketStatus] = useState({
     status: '加载中',
     statusColor: 'orange'
   });
+  const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // 获取市场状态
@@ -29,11 +43,31 @@ export default function Home() {
       }
     };
 
+    // 获取市场指数估值
+    const fetchMarketValuation = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('/api/market-valuation');
+        if (response.ok) {
+          const data = await response.json();
+          setMarketIndices(data);
+        }
+      } catch (error) {
+        console.error('获取市场指数估值失败:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     // 初始加载
     fetchMarketStatus();
+    fetchMarketValuation();
 
     // 每分钟更新一次
-    const interval = setInterval(fetchMarketStatus, 60000);
+    const interval = setInterval(() => {
+      fetchMarketStatus();
+      fetchMarketValuation();
+    }, 60000);
 
     return () => clearInterval(interval);
   }, []);
@@ -64,76 +98,69 @@ export default function Home() {
             <h3 className="text-white text-lg font-bold tracking-tight">
               市场指数估值
             </h3>
-            <span className="text-primary text-xs font-medium">查看全部</span>
+            <Link href="/market" className="text-primary text-xs font-medium hover:underline">查看全部</Link>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            {/* Card 1 */}
-            <GlassCard variant="blue" className="p-4 rounded-xl flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-300 text-sm font-medium">沪深300</span>
-                <span className="bg-green-500/20 text-loss-green text-[10px] px-1.5 py-0.5 rounded">
-                  低估
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-white text-xl font-bold">3,852.12</span>
-                <span className="text-gain-red text-xs font-medium">+0.52%</span>
-              </div>
-              <div className="w-full bg-slate-800 h-1 rounded-full mt-1 overflow-hidden">
-                <div className="bg-gain-red h-full w-[25%]"></div>
-              </div>
-            </GlassCard>
-
-            {/* Card 2 */}
-            <GlassCard variant="blue" className="p-4 rounded-xl flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-300 text-sm font-medium">中证500</span>
-                <span className="bg-yellow-500/20 text-yellow-400 text-[10px] px-1.5 py-0.5 rounded">
-                  正常
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-white text-xl font-bold">5,410.45</span>
-                <span className="text-loss-green text-xs font-medium">-0.12%</span>
-              </div>
-              <div className="w-full bg-slate-800 h-1 rounded-full mt-1 overflow-hidden">
-                <div className="bg-yellow-500 h-full w-[52%]"></div>
-              </div>
-            </GlassCard>
-
-            {/* Card 3 */}
-            <GlassCard variant="blue" className="p-4 rounded-xl flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-300 text-sm font-medium">创业板指</span>
-                <span className="bg-red-500/20 text-gain-red text-[10px] px-1.5 py-0.5 rounded">
-                  高估
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-white text-xl font-bold">1,782.30</span>
-                <span className="text-gain-red text-xs font-medium">+1.24%</span>
-              </div>
-              <div className="w-full bg-slate-800 h-1 rounded-full mt-1 overflow-hidden">
-                <div className="bg-gain-red h-full w-[85%]"></div>
-              </div>
-            </GlassCard>
-
-            {/* Card 4 */}
-            <GlassCard variant="blue" className="p-4 rounded-xl flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-300 text-sm font-medium">恒生指数</span>
-                <span className="bg-green-500/30 text-green-300 text-[10px] px-1.5 py-0.5 rounded">
-                  极低估
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-white text-xl font-bold">16,720.5</span>
-                <span className="text-loss-green text-xs font-medium">-0.45%</span>
-              </div>
-              <div className="w-full bg-slate-800 h-1 rounded-full mt-1 overflow-hidden">
-                <div className="bg-loss-green h-full w-[12%]"></div>
-              </div>
-            </GlassCard>
+            {loading ? (
+              // 加载状态
+              Array.from({ length: 4 }).map((_, index) => (
+                <GlassCard key={index} variant="blue" className="p-4 rounded-xl flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-300 text-sm font-medium">加载中...</span>
+                    <span className="bg-slate-700/20 text-slate-400 text-[10px] px-1.5 py-0.5 rounded">
+                      加载中
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-white text-xl font-bold">--</span>
+                    <span className="text-slate-400 text-xs font-medium">--</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1 overflow-hidden">
+                    <div className="bg-slate-600 h-full w-0 animate-pulse"></div>
+                  </div>
+                </GlassCard>
+              ))
+            ) : marketIndices.length > 0 ? (
+              // 数据加载完成
+              marketIndices.map((index) => (
+                <GlassCard key={index.code} variant="blue" className="p-4 rounded-xl flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-300 text-sm font-medium">{index.name}</span>
+                    <span className={`bg-${index.valuationColor === 'loss-green' ? 'green' : index.valuationColor === 'gain-red' ? 'red' : 'yellow'}-500/20 text-${index.valuationColor} text-[10px] px-1.5 py-0.5 rounded`}>
+                      {index.valuationLevel}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-white text-xl font-bold">{index.price.toLocaleString()}</span>
+                    <span className={`text-${index.changePercent >= 0 ? 'gain-red' : 'loss-green'} text-xs font-medium`}>
+                      {index.changePercent >= 0 ? '+' : ''}{index.changePercent.toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1 overflow-hidden">
+                    <div className={`bg-${index.valuationColor} h-full w-[${index.valuation}%]`}></div>
+                  </div>
+                </GlassCard>
+              ))
+            ) : (
+              // 无数据状态
+              Array.from({ length: 4 }).map((_, index) => (
+                <GlassCard key={index} variant="blue" className="p-4 rounded-xl flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-300 text-sm font-medium">暂无数据</span>
+                    <span className="bg-slate-700/20 text-slate-400 text-[10px] px-1.5 py-0.5 rounded">
+                      --
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-white text-xl font-bold">--</span>
+                    <span className="text-slate-400 text-xs font-medium">--</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1 overflow-hidden">
+                    <div className="bg-slate-600 h-full w-0"></div>
+                  </div>
+                </GlassCard>
+              ))
+            )}
           </div>
         </div>
 
@@ -170,8 +197,8 @@ export default function Home() {
                 <Icon name="chevron_right" className="text-sm" />
               </Link>
             </div>
-            <div className="z-10 bg-white/5 p-4 rounded-3xl backdrop-blur-md border border-white/10">
-              <span aria-label="Happy Emoji" className="text-6xl" role="img">
+            <div className="z-10 bg-white/5 p-3 rounded-3xl backdrop-blur-md border border-white/10 max-w-[100px] max-h-[100px] flex items-center justify-center">
+              <span aria-label="Happy Emoji" className="text-5xl" role="img">
                 😊
               </span>
             </div>
