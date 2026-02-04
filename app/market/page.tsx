@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
 import { BottomNav } from "@/components/BottomNav";
+import { IndexDetailModal } from "@/components/IndexDetailModal";
 import * as echarts from "echarts";
 
 // 市场指数类型定义
@@ -67,6 +68,44 @@ export default function MarketPage() {
   useEffect(() => {
     setClientTime(lastUpdated.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
   }, [lastUpdated]);
+  
+  // 模态框状态
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState<{
+    secid: string;
+    code: string;
+    name: string;
+    price?: number;
+    changePercent?: number;
+  } | null>(null);
+  
+  // 处理指数卡片点击
+  const handleIndexCardClick = (item: MarketIndex) => {
+    // 构建 secid
+    let secid = item.code;
+    if (item.code.startsWith('sh')) {
+      secid = `1.${item.code.slice(2)}`;
+    } else if (item.code.startsWith('sz')) {
+      secid = `0.${item.code.slice(2)}`;
+    } else if (item.code === 'nasdaq') {
+      secid = '100.NDX';
+    } else if (item.code === 'dowjones') {
+      secid = '100.DJIA';
+    } else if (item.code === 'sp500') {
+      secid = '100.SPX';
+    } else if (item.code === 'hangseng') {
+      secid = '100.HSI';
+    }
+    
+    setSelectedIndex({
+      secid,
+      code: item.code,
+      name: item.name,
+      price: parseFloat(item.val.replace(/,/g, '')),
+      changePercent: parseFloat(item.change.replace(/[+%]/g, ''))
+    });
+    setModalOpen(true);
+  };
   
   const navItems = [
     { label: "行情", icon: "dashboard", href: "/market", isActive: true },
@@ -415,7 +454,11 @@ export default function MarketPage() {
               ))
             ) : displayIndices.length > 0 ? (
               displayIndices.map((item) => (
-                <GlassCard key={item.code} className="p-4 rounded-xl flex flex-col gap-2">
+                <GlassCard 
+                  key={item.code} 
+                  className="p-4 rounded-xl flex flex-col gap-2 cursor-pointer hover:bg-white/5 transition-colors"
+                  onClick={() => handleIndexCardClick(item)}
+                >
                   <div className="flex justify-between items-start">
                     <p className="text-white/70 text-sm font-medium">{item.name}</p>
                     {/* 修改：使用 getBadgeStyle 应用圆角矩形样式 */}
@@ -570,6 +613,13 @@ export default function MarketPage() {
         </section>
       </main>
       <BottomNav items={navItems} />
+      
+      {/* 指数详情模态框 */}
+      <IndexDetailModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        indexInfo={selectedIndex}
+      />
     </div>
   );
 }
