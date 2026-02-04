@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
 import { BottomNav } from "@/components/BottomNav";
-import Link from "next/link";
+import * as echarts from "echarts";
 
 // 市场指数类型定义
 interface MarketIndex {
@@ -35,6 +35,21 @@ export default function MarketPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [clientTime, setClientTime] = useState<string>('');
+  const [upCount, setUpCount] = useState(2840);
+  const [downCount, setDownCount] = useState(1560);
+  const [flatCount, setFlatCount] = useState(320);
+  
+  // 图表引用
+  const volumeChartRef = useRef<HTMLDivElement>(null);
+  const volumeChartInstance = useRef<echarts.ECharts | null>(null);
+  
+  // 两市合计成交额数据（模拟）
+  const [volumeData, setVolumeData] = useState<number[]>([
+    120, 150, 180, 160, 200, 220, 250, 230, 260, 280, 300, 320, 340, 360, 380, 400
+  ]);
+  
+  // 时间轴标记
+  const timeLabels = ['9:30', '10:30', '11:30/13:00', '14:00', '15:00'];
 
   // 客户端渲染时设置时间
   useEffect(() => {
@@ -180,6 +195,118 @@ export default function MarketPage() {
     fetchMarketData();
   }, []);
   
+  // 初始化和更新成交量图表
+  useEffect(() => {
+    if (volumeChartRef.current) {
+      // 初始化图表
+      if (!volumeChartInstance.current) {
+        volumeChartInstance.current = echarts.init(volumeChartRef.current);
+      }
+      
+      // 图表配置
+      const option = {
+        tooltip: {
+          trigger: 'axis',
+          formatter: function(params: any) {
+            return `${params[0].name}<br/>成交额: ${params[0].value} 亿元`;
+          },
+          backgroundColor: 'rgba(10, 10, 10, 0.8)',
+          borderColor: 'rgba(255, 255, 255, 0.2)',
+          textStyle: {
+            color: '#fff'
+          }
+        },
+        grid: {
+          left: '3%',
+          right: '4%',
+          bottom: '3%',
+          containLabel: true
+        },
+        xAxis: {
+          type: 'category',
+          boundaryGap: false,
+          data: timeLabels,
+          axisLine: {
+            lineStyle: {
+              color: 'rgba(255, 255, 255, 0.2)'
+            }
+          },
+          axisLabel: {
+            color: 'rgba(255, 255, 255, 0.4)',
+            fontSize: 10
+          }
+        },
+        yAxis: {
+          type: 'value',
+          name: '亿元',
+          nameTextStyle: {
+            color: 'rgba(255, 255, 255, 0.4)',
+            fontSize: 10
+          },
+          axisLine: {
+            lineStyle: {
+              color: 'rgba(255, 255, 255, 0.2)'
+            }
+          },
+          axisLabel: {
+            color: 'rgba(255, 255, 255, 0.4)',
+            fontSize: 10
+          },
+          splitLine: {
+            lineStyle: {
+              color: 'rgba(255, 255, 255, 0.1)'
+            }
+          }
+        },
+        series: [
+          {
+            name: '成交额',
+            type: 'line',
+            smooth: true,
+            data: volumeData,
+            lineStyle: {
+              color: '#3b82f6',
+              width: 2
+            },
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                {
+                  offset: 0,
+                  color: 'rgba(59, 130, 246, 0.3)'
+                },
+                {
+                  offset: 1,
+                  color: 'rgba(59, 130, 246, 0.05)'
+                }
+              ])
+            },
+            symbol: 'circle',
+            symbolSize: 4,
+            itemStyle: {
+              color: '#3b82f6'
+            }
+          }
+        ]
+      };
+      
+      // 设置图表选项
+      volumeChartInstance.current.setOption(option);
+      
+      // 响应式处理
+      const handleResize = () => {
+        volumeChartInstance.current?.resize();
+      };
+      
+      window.addEventListener('resize', handleResize);
+      
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        volumeChartInstance.current?.dispose();
+        volumeChartInstance.current = null;
+      };
+    }
+  }, [volumeData, timeLabels]);
+  
   // 根据展开状态过滤显示的指数
   const displayIndices = isExpanded ? marketIndices : marketIndices.slice(0, 4);
 
@@ -286,24 +413,30 @@ export default function MarketPage() {
           </button>
         </section>
 
-        {/* Chart Distribution Section */}
+        {/* Market Distribution Section */}
         <section className="mt-4 px-4">
           <GlassCard className="p-5 rounded-xl">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-white text-lg font-bold">基金涨跌分布</h3>
-              <span className="text-white/40 text-xs">更新于 14:30:00</span>
+              <h3 className="text-white text-lg font-bold">大盘涨跌分布</h3>
+              <span className="text-white/40 text-xs">更新于 {clientTime}</span>
             </div>
             <div className="flex flex-col gap-2">
-              <div className="flex justify-between items-end mb-2">
+              <div className="flex justify-between items-end mb-4">
                 <div className="flex flex-col">
                   <span className="text-gain-red text-2xl font-bold tracking-tight">
-                    2,840
+                    {upCount.toLocaleString()}
                   </span>
                   <span className="text-white/50 text-xs">上涨家数</span>
                 </div>
+                <div className="flex flex-col items-center">
+                  <span className="text-primary text-2xl font-bold tracking-tight">
+                    {flatCount.toLocaleString()}
+                  </span>
+                  <span className="text-white/50 text-xs">平盘家数</span>
+                </div>
                 <div className="flex flex-col items-end">
                   <span className="text-loss-green text-2xl font-bold tracking-tight">
-                    1,560
+                    {downCount.toLocaleString()}
                   </span>
                   <span className="text-white/50 text-xs">下跌家数</span>
                 </div>
@@ -352,8 +485,19 @@ export default function MarketPage() {
           </GlassCard>
         </section>
 
+        {/* Volume Chart Section */}
+        <section className="mt-4 px-4">
+          <GlassCard className="p-5 rounded-xl">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-white text-lg font-bold">两市合计成交额</h3>
+              <span className="text-white/40 text-xs">单位：亿元</span>
+            </div>
+            <div ref={volumeChartRef} style={{ width: '100%', height: '300px' }}></div>
+          </GlassCard>
+        </section>
+
         {/* Capital Flow Section */}
-        <section className="mt-6 px-4">
+        <section className="mt-6 px-4 mb-4">
           <GlassCard className="p-5 rounded-xl">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-white text-lg font-bold">资金流向统计</h3>
@@ -364,10 +508,13 @@ export default function MarketPage() {
                 <span className="text-xs flex items-center gap-1 text-white/60">
                   <span className="size-2 rounded-full bg-gain-red"></span> 净入
                 </span>
+                <span className="text-xs flex items-center gap-1 text-white/60">
+                  <span className="size-2 rounded-full bg-loss-green"></span> 净出
+                </span>
               </div>
             </div>
             <div className="space-y-6">
-              {/* Northbound Flow */}
+              {/* Main Capital Flow */}
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-white/70">主力资金净流入</span>
@@ -375,12 +522,12 @@ export default function MarketPage() {
                 </div>
                 <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
                   <div
-                    className="bg-primary h-full rounded-full"
+                    className="bg-gain-red h-full rounded-full"
                     style={{ width: "65%" }}
                   ></div>
                 </div>
               </div>
-              {/* Southbound Flow */}
+              {/* Northbound Flow */}
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-white/70">北向资金净流入</span>
@@ -393,17 +540,30 @@ export default function MarketPage() {
                   ></div>
                 </div>
               </div>
+              {/* Market Breadth */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-white/70">市场涨跌比</span>
+                  <span className="text-primary font-bold">1.82:1</span>
+                </div>
+                <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-primary h-full rounded-full"
+                    style={{ width: "65%" }}
+                  ></div>
+                </div>
+              </div>
             </div>
             <div className="mt-8 grid grid-cols-2 gap-4">
               <div className="p-3 bg-white/5 rounded-lg border border-white/5">
                 <p className="text-white/40 text-[10px] uppercase font-bold">
-                  成交额
+                  两市合计成交额
                 </p>
                 <p className="text-lg font-bold mt-1">9,240.2亿</p>
               </div>
               <div className="p-3 bg-white/5 rounded-lg border border-white/5">
                 <p className="text-white/40 text-[10px] uppercase font-bold">
-                  换手率
+                  平均换手率
                 </p>
                 <p className="text-lg font-bold mt-1">1.42%</p>
               </div>

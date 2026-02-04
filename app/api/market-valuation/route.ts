@@ -18,155 +18,35 @@ export interface MarketIndex {
   valuationColor: string;
 }
 
-// 指数代码映射
+// 指数代码映射（使用东方财富的指数代码格式）
 const INDEX_CODES = {
-  'sh000001': '上证指数',
-  'sh000300': '沪深300',
-  'sz399001': '深证成指',
-  'sz399006': '创业板指'
+  '1.000001': '上证指数',
+  '1.000300': '沪深300',
+  '0.399001': '深证成指',
+  '0.399006': '创业板指',
+  '0.399005': '中小板指',
+  '1.000688': '科创50'
 };
 
 // 国际市场指数代码映射（使用东方财富的国际指数代码）
 const INTERNATIONAL_INDEX_CODES = {
-  'nasdaq': '纳斯达克',
-  'dowjones': '道琼斯',
-  'sp500': '标普500',
-  'hangseng': '恒生指数'
+  '100.NDX': '纳斯达克',
+  '100.DJIA': '道琼斯',
+  '100.SPX': '标普500',
+  '100.HSI': '恒生指数'
 };
-
-// 获取国际市场指数数据（使用Python脚本）
-async function fetchInternationalMarketData(): Promise<MarketIndex[]> {
-  try {
-    // 执行Python脚本获取市场数据
-    const allData = await executePythonScript();
-    // 过滤出国际市场数据
-    const internationalIndices = allData.filter(item => 
-      ['nasdaq', 'dowjones', 'sp500', 'hangseng'].includes(item.code)
-    );
-    // 确保返回的数据包含正确的中文名称和估值水平
-    return internationalIndices.map(item => {
-      // 使用getValuationLevel函数计算正确的估值水平，避免使用Python脚本中可能编码错误的估值水平
-      const { level, color } = getValuationLevel(item.valuation);
-      return {
-        ...item,
-        name: INTERNATIONAL_INDEX_CODES[item.code as keyof typeof INTERNATIONAL_INDEX_CODES] || item.name,
-        valuationLevel: level,
-        valuationColor: color
-      };
-    });
-  } catch (error) {
-    console.error('Error fetching international market data:', error);
-    // 错误时返回模拟数据
-    const mockInternationalData: MarketIndex[] = [
-      {
-        code: 'nasdaq',
-        name: '纳斯达克',
-        price: 14823.45,
-        change: 124.65,
-        changePercent: 0.85,
-        valuation: 55,
-        valuationLevel: '正常',
-        valuationColor: 'yellow-400'
-      },
-      {
-        code: 'dowjones',
-        name: '道琼斯',
-        price: 37245.10,
-        change: 118.45,
-        changePercent: 0.32,
-        valuation: 75,
-        valuationLevel: '高估',
-        valuationColor: 'gain-red'
-      },
-      {
-        code: 'sp500',
-        name: '标普500',
-        price: 4856.78,
-        change: 28.05,
-        changePercent: 0.58,
-        valuation: 60,
-        valuationLevel: '正常',
-        valuationColor: 'yellow-400'
-      },
-      {
-        code: 'hangseng',
-        name: '恒生指数',
-        price: 16825.30,
-        change: -110.25,
-        changePercent: -0.65,
-        valuation: 25,
-        valuationLevel: '低估',
-        valuationColor: 'loss-green'
-      }
-    ];
-    return mockInternationalData;
-  }
-}
-
-// 执行Python脚本获取市场数据
-async function executePythonScript(): Promise<MarketIndex[]> {
-  return new Promise((resolve, reject) => {
-    let pythonProcess: any;
-    // 设置Python进程的超时时间
-    const timeoutId = setTimeout(() => {
-      reject(new Error('Python脚本执行超时'));
-      if (pythonProcess) {
-        pythonProcess.kill();
-      }
-    }, 15000);
-
-    pythonProcess = spawn('python', ['market_data.py'], {
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    let output = '';
-    let errorOutput = '';
-
-    pythonProcess.stdout.on('data', (data: Buffer) => {
-      output += data.toString('utf8');
-    });
-
-    pythonProcess.stderr.on('data', (data: Buffer) => {
-      errorOutput += data.toString();
-    });
-
-    pythonProcess.on('close', (code: number) => {
-      clearTimeout(timeoutId);
-      if (code === 0) {
-        try {
-          const data = JSON.parse(output);
-          resolve(data);
-        } catch (error: any) {
-          console.error('解析Python脚本输出失败:', error);
-          console.error('Python脚本输出:', output);
-          reject(new Error('解析Python脚本输出失败'));
-        }
-      } else {
-        console.error('Python脚本执行失败:', errorOutput);
-        reject(new Error(`Python脚本执行失败: ${errorOutput}`));
-      }
-    });
-
-    pythonProcess.on('error', (error: Error) => {
-      clearTimeout(timeoutId);
-      console.error('启动Python进程失败:', error);
-      reject(new Error(`启动Python进程失败: ${error.message}`));
-    });
-  });
-}
 
 // 获取市场指数估值数据
 export async function GET(request: NextRequest) {
   try {
+    // 合并所有指数代码
+    const allIndexCodes = {
+      ...INDEX_CODES,
+      ...INTERNATIONAL_INDEX_CODES
+    };
+
     // 构建指数代码字符串
-    const secids = Object.keys(INDEX_CODES).map(code => {
-      if (code.startsWith('sh')) {
-        return `1.${code.slice(2)}`;
-      } else {
-        return `0.${code.slice(2)}`;
-      }
-    }).join(',');
+    const secids = Object.keys(allIndexCodes).join(',');
 
     // 东方财富API URL - 获取基本市场数据
     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
@@ -182,12 +62,16 @@ export async function GET(request: NextRequest) {
     // 处理数据
     const indices: MarketIndex[] = [];
     
-    // 处理国内市场数据
+    // 处理所有市场数据
     if (data.data && data.data.diff) {
-      const domesticIndices = data.data.diff.map((item: { f12: string; f13: number; f14: string; f2: number; f4: number; f3: number }) => {
+      const allIndices = data.data.diff.map((item: { f12: string; f13: number; f14: string; f2: number; f4: number; f3: number }) => {
+        // 构建完整的指数代码
         const code = item.f12;
-        const fullCode = item.f13 === 1 ? `sh${code}` : `sz${code}`;
-        const name = INDEX_CODES[fullCode as keyof typeof INDEX_CODES] || item.f14;
+        const marketCode = item.f13;
+        const fullCode = `${marketCode}.${code}`;
+        
+        // 获取指数名称
+        const name = allIndexCodes[fullCode as keyof typeof allIndexCodes] || item.f14;
         const price = item.f2;
         const change = item.f4;
         const changePercent = item.f3;
@@ -201,8 +85,25 @@ export async function GET(request: NextRequest) {
         const valuation = getMockValuation(fullCode);
         const { level, color } = getValuationLevel(valuation);
 
+        // 转换为前端使用的代码格式
+        let frontendCode = fullCode;
+        if (fullCode.startsWith('1.')) {
+          frontendCode = `sh${fullCode.slice(2)}`;
+        } else if (fullCode.startsWith('0.')) {
+          frontendCode = `sz${fullCode.slice(2)}`;
+        } else if (fullCode.startsWith('100.')) {
+          // 国际指数映射
+          const codeMap: { [key: string]: string } = {
+            '100.NDX': 'nasdaq',
+            '100.DJIA': 'dowjones',
+            '100.SPX': 'sp500',
+            '100.HSI': 'hangseng'
+          };
+          frontendCode = codeMap[fullCode] || fullCode;
+        }
+
         return {
-          code: fullCode,
+          code: frontendCode,
           name,
           price,
           change,
@@ -213,12 +114,8 @@ export async function GET(request: NextRequest) {
         };
       });
       
-      indices.push(...domesticIndices);
+      indices.push(...allIndices);
     }
-    
-    // 获取国际市场数据（使用Python脚本）
-    const internationalIndices = await fetchInternationalMarketData();
-    indices.push(...internationalIndices);
 
     return NextResponse.json(indices);
   } catch (error) {
@@ -275,10 +172,16 @@ export async function GET(request: NextRequest) {
 // 获取模拟估值数据
 function getMockValuation(code: string): number {
   const valuations: { [key: string]: number } = {
-    'sh000001': 35,
-    'sh000300': 25,
-    'sz399001': 45,
-    'sz399006': 65
+    '1.000001': 35,
+    '1.000300': 25,
+    '0.399001': 45,
+    '0.399006': 65,
+    '0.399005': 50,
+    '1.000688': 70,
+    '100.NDX': 55,
+    '100.DJIA': 75,
+    '100.SPX': 60,
+    '100.HSI': 25
   };
   return valuations[code] || 50;
 }
@@ -338,6 +241,26 @@ function getMockIndices(): MarketIndex[] {
       change: 21.85,
       changePercent: 1.24,
       valuation: 65,
+      valuationLevel: '高估',
+      valuationColor: 'gain-red'
+    },
+    {
+      code: 'sz399005',
+      name: '中小板指',
+      price: 6520.45,
+      change: 12.36,
+      changePercent: 0.19,
+      valuation: 50,
+      valuationLevel: '正常',
+      valuationColor: 'yellow-400'
+    },
+    {
+      code: 'sh000688',
+      name: '科创50',
+      price: 1050.78,
+      change: -8.25,
+      changePercent: -0.78,
+      valuation: 70,
       valuationLevel: '高估',
       valuationColor: 'gain-red'
     }
