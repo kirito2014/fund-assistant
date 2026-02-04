@@ -168,12 +168,9 @@ export default function Home() {
     checkTradingDayStatus();
   }, []);
 
-  // 定时器：每秒更新时间显示和交易状态
+  // 定时器：每秒更新交易状态
   useEffect(() => {
     const updateTick = () => {
-      // 更新客户端时间显示
-      setClientTime(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-      
       // 基于当前的 isTradingDay 状态计算文字
       const newStatus = calculateRealTimeStatus(isTradingDay);
       
@@ -190,6 +187,11 @@ export default function Home() {
     const timer = setInterval(updateTick, 1000);
     return () => clearInterval(timer);
   }, [isTradingDay]); // 依赖 isTradingDay，当 API 返回结果后，定时器逻辑会自动更新为准确状态
+  
+  // 当 lastUpdated 变化时更新 clientTime
+  useEffect(() => {
+    setClientTime(lastUpdated.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  }, [lastUpdated]);
 
 
   // ----------------------------------------------------------------

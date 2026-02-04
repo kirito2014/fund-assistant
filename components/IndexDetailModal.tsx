@@ -307,14 +307,16 @@ export function IndexDetailModal({ isOpen, onClose, indexInfo }: IndexDetailModa
             }
           }
         },
-        // 添加时间竖线
+        // 添加成交量时间竖线
         {
-          name: 'TimeLine',
+          name: 'VolumeTimeLine',
           type: 'custom',
+          xAxisIndex: 1, // 使用成交量的 x 轴
+          yAxisIndex: 2, // 使用成交量的 y 轴
           renderItem: (params: any, api: any) => {
             const xValue = api.value(0);
-            const start = api.coord([xValue, api.value(1)]);
-            const end = api.coord([xValue, api.value(2)]);
+            const start = api.coord([xValue, 0]); // 成交量起始值
+            const end = api.coord([xValue, 100000000]); // 一个足够大的值，确保竖线贯穿整个成交量区域
             return {
               type: 'group',
               children: [
@@ -338,7 +340,7 @@ export function IndexDetailModal({ isOpen, onClose, indexInfo }: IndexDetailModa
           // 生成时间竖线数据
           data: timeData.map((time, index) => {
             if (time === '09:30' || time === '10:30' || time === '11:30' || time === '14:00' || time === '15:00') {
-              return [index, yMin, yMax];
+              return [index, 0, 100000000]; // 使用成交量的范围
             }
             return [];
           }).filter(item => item.length > 0)
@@ -386,8 +388,8 @@ export function IndexDetailModal({ isOpen, onClose, indexInfo }: IndexDetailModa
         className={`
           relative bg-[#1e1e1e] border border-white/10 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ease-in-out
           ${isLandscape 
-            ? 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vh] h-[90vw] rotate-90' 
-            : 'w-full max-w-[400px] h-[700px]'
+            ? 'w-[90vh] h-[90vw] rotate-90' 
+            : 'w-full max-w-[400px] h-[600px]'
           }
         `}
       >
