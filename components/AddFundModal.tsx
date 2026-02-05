@@ -41,9 +41,9 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
     return selectedFunds.some((fund: any) => fund.CODE === code || fund.fundcode === code);
   };
 
-  // 检查基金是否已在自选标签中
-  const isFundInWatchlist = (code: string) => {
-    return existingFunds.some((fund: any) => fund.fundcode === code && fund.tags.includes("自选"));
+  // 检查基金是否已在当前标签中
+  const isFundInCurrentTag = (code: string) => {
+    return existingFunds.some((fund: any) => fund.fundcode === code && fund.tags.includes(activeTag));
   };
 
   // 添加基金到待添加列表
@@ -63,11 +63,11 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
   const handleBatchAdd = async () => {
     if (selectedFunds.length === 0) return;
 
-    if (activeTag === "自选") {
-      // 从自选标签中添加/移除基金
+    if (activeTag !== "全部") {
+      // 从当前标签中添加基金
       selectedFunds.forEach(fund => {
         const code = fund.CODE || fund.fundcode;
-        onSave(code);
+        onSave(code, [activeTag]);
       });
     } else {
       // 搜索添加新基金
@@ -166,11 +166,19 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
         });
       }
     }
+    
+    // 关闭模态框
+    onClose();
   };
 
-  // 获取不在自选标签中的基金
-  const getFundsNotInWatchlist = () => {
-    return existingFunds.filter((fund: any) => !fund.tags.includes("自选"));
+  // 获取不在当前标签中的基金
+  const getFundsNotInCurrentTag = () => {
+    return existingFunds.filter((fund: any) => !fund.tags.includes(activeTag));
+  };
+
+  // 检查是否是自定义标签（非全部、非自选）
+  const isCustomTag = () => {
+    return activeTag !== "全部" && activeTag !== "自选";
   };
 
   if (!isOpen) return null;
@@ -180,14 +188,14 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
       <div className="glass-card w-full max-w-lg rounded-2xl overflow-hidden flex flex-col max-h-[90vh]">
         <div className="p-6 border-b border-slate-800 flex justify-between items-center">
           <h3 className="text-white text-xl font-bold">
-            {activeTag === "自选" ? "添加到自选" : "添加基金"}
+            {isCustomTag() ? `添加到${activeTag}` : activeTag === "自选" ? "添加到自选" : "添加基金"}
           </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white"><Icon name="close" /></button>
         </div>
 
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
-          {activeTag !== "自选" && (
-            // 搜索框（仅在非自选标签下显示）
+          {!isCustomTag() && activeTag !== "自选" && (
+            // 搜索框（仅在全部标签下显示）
             <div className="relative">
               <Icon name="search" className="absolute left-3 top-3 text-slate-500" />
               <input
@@ -201,12 +209,12 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
           )}
 
           {/* 基金列表 */}
-          {(activeTag === "自选" ? getFundsNotInWatchlist().length > 0 : results.length > 0) && (
+          {((isCustomTag() || activeTag === "自选") ? getFundsNotInCurrentTag().length > 0 : results.length > 0) && (
             <div className="bg-slate-900 rounded-xl border border-slate-800 divide-y divide-slate-800 overflow-hidden">
-              {(activeTag === "自选" ? getFundsNotInWatchlist() : results.slice(0, 5)).map((f: any) => {
+              {((isCustomTag() || activeTag === "自选") ? getFundsNotInCurrentTag() : results.slice(0, 5)).map((f: any) => {
                 const code = f.CODE || f.fundcode;
                 const name = f.NAME || f.name;
-                const added = activeTag === "自选" ? isFundInWatchlist(code) : isFundAdded(code);
+                const added = (isCustomTag() || activeTag === "自选") ? isFundInCurrentTag(code) : isFundAdded(code);
                 const selected = isFundSelected(code);
                 const disabled = selected || added || selectedFunds.length >= 10;
                 
@@ -244,10 +252,10 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
           )}
 
           {/* 无基金提示 */}
-          {activeTag === "自选" && getFundsNotInWatchlist().length === 0 && (
+          {((isCustomTag() || activeTag === "自选") && getFundsNotInCurrentTag().length === 0) && (
             <div className="bg-slate-900 rounded-xl border border-slate-800 p-6 flex flex-col items-center justify-center">
               <Icon name="check_circle" className="text-slate-500 text-4xl mb-3" />
-              <p className="text-slate-400 text-sm font-medium">所有基金都已添加到自选</p>
+              <p className="text-slate-400 text-sm font-medium">所有基金都已添加到{activeTag}</p>
             </div>
           )}
 
@@ -256,7 +264,7 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-slate-400 text-sm font-medium">
-                  {activeTag === "自选" ? "待添加到自选" : "待添加基金"} ({selectedFunds.length}/10)
+                  {isCustomTag() ? `待添加到${activeTag}` : activeTag === "自选" ? "待添加到自选" : "待添加基金"} ({selectedFunds.length}/10)
                 </p>
                 {selectedFunds.length > 0 && (
                   <button 
@@ -301,7 +309,7 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
             onClick={handleBatchAdd}
             className="flex-1 py-3 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 disabled:opacity-30 transition-all"
           >
-            {activeTag === "自选" ? "添加到自选" : "确认添加"} ({selectedFunds.length})
+            {isCustomTag() ? `添加到${activeTag}` : activeTag === "自选" ? "添加到自选" : "确认添加"} ({selectedFunds.length})
           </button>
         </div>
       </div>

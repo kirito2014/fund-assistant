@@ -5,6 +5,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
 import { BottomNav } from "@/components/BottomNav";
 import AddFundModal from "@/components/AddFundModal";
+import TagManagementModal from "@/components/TagManagementModal";
 
 // --- 类型定义 ---
 interface Fund {
@@ -36,6 +37,7 @@ export default function FundsPage() {
   const [changeSortType, setChangeSortType] = useState<'none' | 'asc' | 'desc'>('none');
   const [sortBy, setSortBy] = useState<'name' | 'change'>('change');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isTagModalOpen, setIsTagModalOpen] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   
   // 默认基金列表 (保留你原有的默认值)
@@ -204,10 +206,10 @@ export default function FundsPage() {
   const handleSaveFund = (newFund: any, tags: string[] = ["全部"]) => {
     const code = newFund.fundcode || newFund; // 兼容不同传参
     
-    // 检查是否是从自选标签页面添加基金
-    const isWatchlistAdd = typeof newFund === 'string';
+    // 检查是否是从标签页面添加基金（自选或自定义标签）
+    const isTagAdd = typeof newFund === 'string';
     
-    if (!isWatchlistAdd && !fundList.includes(code)) {
+    if (!isTagAdd && !fundList.includes(code)) {
       // 更新列表（仅当添加新基金时）
       const newList = [...fundList, code];
       setFundList(newList);
@@ -232,11 +234,15 @@ export default function FundsPage() {
     // 更新标签
     setFunds(prev => prev.map(f => {
         if (f.fundcode === code) {
-            if (isWatchlistAdd) {
-                // 从自选标签页面添加，只添加自选标签
-                if (!f.tags.includes("自选")) {
-                    return { ...f, tags: [...f.tags, "自选"] };
-                }
+            if (isTagAdd) {
+                // 从标签页面添加，添加指定标签
+                const updatedTags = [...f.tags];
+                tags.forEach(tag => {
+                    if (!updatedTags.includes(tag)) {
+                        updatedTags.push(tag);
+                    }
+                });
+                return { ...f, tags: updatedTags };
             } else {
                 // 合并新标签
                 const mergedTags = Array.from(new Set([...f.tags, ...tags]));
@@ -246,15 +252,61 @@ export default function FundsPage() {
         return f;
     }));
 
+    // 关闭模态框
     setIsModalOpen(false);
 
     // 更新顶部标签栏
-    if (!isWatchlistAdd) {
+    if (!isTagAdd) {
       const newTags = tags.filter(tag => !tags.includes(tag));
       if (newTags.length > 0) {
         setTags(prev => [...prev, ...newTags]);
       }
     }
+  };
+
+  // 处理标签管理保存
+  const handleSaveTags = (originalTags: string[], updatedTags: string[]) => {
+    // 获取所有需要删除的标签
+    const deletedTags = originalTags.filter(tag => !updatedTags.includes(tag));
+    
+    // 获取所有需要添加的标签
+    const addedTags = updatedTags.filter(tag => !originalTags.includes(tag));
+    
+    // 获取所有需要重命名的标签
+    const renamedTags = updatedTags.map((newName, index) => {
+      const oldName = originalTags[index];
+      if (newName !== oldName) {
+        return { oldName, newName };
+      }
+      return null;
+    }).filter((item): item is { oldName: string; newName: string } => item !== null);
+    
+    // 更新基金标签
+    setFunds(prev => prev.map(fund => {
+      let updatedFundTags = [...fund.tags];
+      
+      // 处理删除标签
+      deletedTags.forEach(tag => {
+        updatedFundTags = updatedFundTags.filter(t => t !== tag);
+      });
+      
+      // 处理重命名标签
+      renamedTags.forEach(({ oldName, newName }) => {
+        updatedFundTags = updatedFundTags.map(t => t === oldName ? newName : t);
+      });
+      
+      return { ...fund, tags: updatedFundTags };
+    }));
+    
+    // 更新顶部标签栏
+    setTags(prev => {
+      // 保留"全部"和"自选"标签
+      const baseTags = prev.filter(t => t === "全部" || t === "自选");
+      // 添加所有用户自定义标签
+      const customTags = updatedTags.filter(t => t !== "全部" && t !== "自选");
+      // 合并标签，确保没有重复
+      return [...baseTags, ...customTags.filter(t => !baseTags.includes(t as any))];
+    });
   };
 
   // --- 渲染逻辑 (保持原有样式) ---
@@ -347,6 +399,12 @@ export default function FundsPage() {
             })}
           </div>
           <div className="flex items-center gap-4 shrink-0 ml-4">
+            <button 
+              className="text-slate-500 hover:text-white"
+              onClick={() => setIsTagModalOpen(true)}
+            >
+              <Icon name="label" className="text-sm cursor-pointer" />
+            </button>
             <button 
               className={`${nameSortType !== 'none' ? 'text-white' : 'text-slate-500'}`}
               onClick={() => {
@@ -584,6 +642,14 @@ export default function FundsPage() {
         onSave={handleSaveFund}
         existingFunds={funds}
         activeTag={activeTag}
+      />
+
+      {/* 标签管理模态框 */}
+      <TagManagementModal 
+        isOpen={isTagModalOpen} 
+        onClose={() => setIsTagModalOpen(false)} 
+        existingTags={tags}
+        onSave={handleSaveTags}
       />
     </div>
   );
