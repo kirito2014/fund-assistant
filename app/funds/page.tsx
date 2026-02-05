@@ -1,83 +1,269 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Icon } from "@/components/ui/Icon";
 import { BottomNav } from "@/components/BottomNav";
 import AddFundModal from "@/components/AddFundModal";
 
-// 定义基金数据结构
+// --- 类型定义 ---
 interface Fund {
   fundcode: string;
   name: string;
-  dwjz: string;    // 单位净值
-  gsz: string;     // 估算净值
+  dwjz: string;    // 单位净值 (昨收)
+  gsz: string;     // 估算净值 (实时)
   gszzl: string;   // 估算涨跌幅
-  gztime: string;
+  gztime: string;  // 估值时间
   isStarred?: boolean; // 特别关注
   tags: string[];      // 标签分组
-  hasReplace?: boolean; // 是否使用单位净值替换估算净值
+  hasReplace?: boolean; // 是否已使用真实净值替换估值 (盘后模式)
+}
+
+// 扩展 Window 接口以支持 JSONP 回调和腾讯全局变量
+declare global {
+  interface Window {
+    jsonpgz: (data: any) => void;
+    [key: string]: any;
+  }
 }
 
 export default function FundsPage() {
+  // --- 状态管理 ---
   const [funds, setFunds] = useState<Fund[]>([]);
   const [tags, setTags] = useState<string[]>(["全部", "消费", "科技", "医药"]);
   const [activeTag, setActiveTag] = useState("全部");
-  const [loading, setLoading] = useState(true);
-  // 默认基金列表
-  const [fundList, setFundList] = useState<string[]>(["001618", "001630", "008887", "005827", "161725"]);
+  const [sortType, setSortType] = useState<'none' | 'asc' | 'desc'>('none');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // 默认基金列表 (保留你原有的默认值)
+  const [fundList, setFundList] = useState<string[]>(["001618", "001630", "008887", "005827", "161725"]);
 
-  // 使用 Ref 追踪最新的 funds 状态，用于在 getData 中正确保留标签
+  // 使用 Ref 解决闭包陷阱，确保在回调中能访问最新数据
   const fundsRef = useRef<Fund[]>([]);
+  const fundListRef = useRef<string[]>([]);
 
-  // 监听 funds 变化，同步更新 ref
+  // --- 持久化逻辑 ---
   useEffect(() => {
     fundsRef.current = funds;
-    // 数据变化时保存到 localStorage
-    if (funds.length > 0) {
-      localStorage.setItem('savedFunds', JSON.stringify(funds));
-    }
+    if (funds.length > 0) localStorage.setItem('savedFunds', JSON.stringify(funds));
   }, [funds]);
-  
-  // 初始化：从 localStorage 加载所有数据
+
+  useEffect(() => {
+    fundListRef.current = fundList;
+    localStorage.setItem('savedFundList', JSON.stringify(fundList));
+  }, [fundList]);
+
+  useEffect(() => {
+    localStorage.setItem('savedTags', JSON.stringify(tags));
+  }, [tags]);
+
+  // --- 初始化加载 ---
   useEffect(() => {
     const savedTags = localStorage.getItem('savedTags');
     const savedFundList = localStorage.getItem('savedFundList');
     const savedFunds = localStorage.getItem('savedFunds');
-    
-    if (savedTags) {
-      setTags(JSON.parse(savedTags));
-    }
-    
-    // 优先加载保存的完整基金数据（包含标签）
-    if (savedFunds) {
-      const parsedFunds = JSON.parse(savedFunds);
-      setFunds(parsedFunds);
-      fundsRef.current = parsedFunds; 
-    }
 
-    // 加载保存的基金代码列表
+    if (savedTags) setTags(JSON.parse(savedTags));
+    if (savedFunds) {
+      const parsed = JSON.parse(savedFunds);
+      setFunds(parsed);
+      fundsRef.current = parsed;
+    }
     if (savedFundList) {
-      setFundList(JSON.parse(savedFundList));
+      const list = JSON.parse(savedFundList);
+      setFundList(list);
+      fundListRef.current = list;
     }
     
-    // 触发一次数据更新
-    getData();
-  }, []); // 仅组件挂载时执行一次
-  
-  // 监听状态变化并持久化
-  useEffect(() => {
-    localStorage.setItem('savedTags', JSON.stringify(tags));
-  }, [tags]);
-  
-  useEffect(() => {
-    localStorage.setItem('savedFundList', JSON.stringify(fundList));
-    // 列表变化时，重新获取数据
-    if (fundList.length > 0) {
-      getData();
+    // 初始化后立即刷新一次
+    if (savedFundList) {
+       refreshAllFunds(JSON.parse(savedFundList));
+    } else {
+       refreshAllFunds(fundList);
     }
-  }, [fundList]);
+  }, []);
+
+  // --- 核心逻辑：定义全局 JSONP 回调 (参考 Reference Project) ---
+  useEffect(() => {
+    // 注册天天基金的回调函数
+    window.jsonpgz = (gzData: any) => {
+      if (!gzData || !gzData.fundcode) return;
+      
+      const code = gzData.fundcode;
+      
+      // 1. 获取到天天基金数据后，立即去获取腾讯财经数据进行比对
+      fetchTencentData(code, gzData);
+    };
+
+    // 设置定时器每 60 秒刷新一次
+    const interval = setInterval(() => {
+      refreshAllFunds(fundListRef.current);
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // --- 辅助函数：获取腾讯数据并整合 (参考 Reference Project 逻辑) ---
+  const fetchTencentData = (code: string, gzData: any) => {
+    const script = document.createElement("script");
+    script.src = `https://qt.gtimg.cn/q=jj${code}`;
+    script.onload = () => {
+      // 腾讯数据格式: v_jj005827 = "代码~名称~单位净值~净值日期~..."
+      const tencentVar = window[`v_jj${code}`];
+      if (tencentVar) {
+        const tDataArr = tencentVar.split("~");
+        if (tDataArr.length > 5) {
+          const tencentDate = tDataArr[3]; // 净值日期
+          const tencentNav = tDataArr[1];  // 单位净值
+          const tencentChange = tDataArr[5]; // 涨跌幅
+          const gzDate = gzData.jzrq; // 天天基金的净值日期
+
+          // 参考项目核心逻辑：如果腾讯的日期 >= 天天基金日期，说明盘后净值已更新，使用腾讯数据覆盖估值
+          // 这样能保证收盘后显示的是准确的净值，而不是预估值
+          if (tencentDate && (!gzDate || tencentDate >= gzDate)) {
+             gzData.gsz = tencentNav;
+             gzData.gszzl = tencentChange;
+             gzData.hasReplace = true; // 标记已被替换
+             gzData.gztime = `净值 ${tencentDate}`; // 更新显示时间为净值日期
+          }
+        }
+      }
+      // 更新单个基金状态
+      updateFundState(gzData);
+      // 清理脚本
+      document.body.removeChild(script);
+    };
+    script.onerror = () => {
+        // 如果腾讯接口失败，直接使用天天基金数据
+        updateFundState(gzData);
+        document.body.removeChild(script);
+    };
+    document.body.appendChild(script);
+  };
+
+  // --- 辅助函数：更新 React 状态 ---
+  const updateFundState = (newData: any) => {
+    setFunds(prevFunds => {
+      // 检查是否已存在，保留原有的标签和星标状态
+      const existingIndex = prevFunds.findIndex(f => f.fundcode === newData.fundcode);
+      const existingTags = existingIndex > -1 ? prevFunds[existingIndex].tags : ["全部"];
+      const existingStar = existingIndex > -1 ? prevFunds[existingIndex].isStarred : false;
+
+      const newFundObj: Fund = {
+        fundcode: newData.fundcode,
+        name: newData.name,
+        // 如果 API 返回为空，给默认值
+        dwjz: newData.dwjz || "--", 
+        gsz: newData.gsz || newData.dwjz || "--",
+        gszzl: newData.gszzl || "0.00",
+        gztime: newData.gztime || newData.jzrq || "--",
+        tags: existingTags,
+        isStarred: existingStar,
+        hasReplace: newData.hasReplace
+      };
+
+      if (existingIndex > -1) {
+        const newArr = [...prevFunds];
+        newArr[existingIndex] = newFundObj;
+        return newArr;
+      } else {
+        return [...prevFunds, newFundObj];
+      }
+    });
+  };
+
+  // --- 核心函数：触发所有基金的刷新 ---
+  const refreshAllFunds = (codes: string[]) => {
+    if (!codes || codes.length === 0) return;
+    
+    // 遍历创建 Script 标签请求天天基金
+    codes.forEach(code => {
+      const script = document.createElement("script");
+      // 添加时间戳防止缓存
+      script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${new Date().getTime()}`;
+      script.onload = () => {
+         // 请求成功后会执行 window.jsonpgz，逻辑在 useEffect 中
+         document.body.removeChild(script);
+      };
+      script.onerror = () => {
+         // 错误处理：可能是新发基金查不到估值，尝试仅查腾讯数据
+         fetchTencentData(code, { fundcode: code, name: "加载中...", jzrq: "" });
+         if(document.body.contains(script)) document.body.removeChild(script);
+      };
+      document.body.appendChild(script);
+    });
+  };
+
+  // --- 交互处理 ---
+  const handleToggleStar = (code: string) => {
+    setFunds(prev => prev.map(f => 
+      f.fundcode === code ? { ...f, isStarred: !f.isStarred } : f
+    ));
+  };
+
+  const handleSaveFund = (newFund: any, tags: string[]) => {
+    const code = newFund.fundcode || newFund; // 兼容不同传参
+    
+    // 更新列表
+    if (!fundList.includes(code)) {
+      const newList = [...fundList, code];
+      setFundList(newList);
+      fundListRef.current = newList;
+      
+      // 预先添加一个占位数据，提升体验
+      setFunds(prev => [...prev, {
+          fundcode: code,
+          name: "加载中...",
+          dwjz: "--",
+          gsz: "--",
+          gszzl: "0.00",
+          gztime: "--",
+          tags: ["全部", ...tags],
+          isStarred: false
+      }]);
+
+      // 立即触发一次刷新
+      setTimeout(() => refreshAllFunds([code]), 100);
+    }
+    
+    // 更新标签（如果是已有基金更新标签）
+    setFunds(prev => prev.map(f => {
+        if (f.fundcode === code) {
+            // 合并新标签
+            const mergedTags = Array.from(new Set([...f.tags, ...tags]));
+            return { ...f, tags: mergedTags };
+        }
+        return f;
+    }));
+
+    setIsModalOpen(false);
+
+    // 更新顶部标签栏
+    const newTags = tags.filter(tag => !tags.includes(tag));
+    if (newTags.length > 0) {
+      setTags(prev => [...prev, ...newTags]);
+    }
+  };
+
+  // --- 渲染逻辑 (保持原有样式) ---
+  const processedFunds = (() => {
+    let list = [...funds];
+    // 过滤
+    if (activeTag !== "全部") {
+      list = list.filter(f => f.tags.includes(activeTag));
+    }
+    // 排序
+    if (sortType !== 'none') {
+      list.sort((a, b) => {
+        const valA = parseFloat(a.gszzl);
+        const valB = parseFloat(b.gszzl);
+        return sortType === 'asc' ? valA - valB : valB - valA;
+      });
+    }
+    // 星标置顶
+    list.sort((a, b) => (b.isStarred ? 1 : 0) - (a.isStarred ? 1 : 0));
+    return list;
+  })();
 
   const navItems = [
     { label: "自选", icon: "dashboard", href: "/funds", isActive: true },
@@ -85,104 +271,6 @@ export default function FundsPage() {
     { label: "资产", icon: "account_balance_wallet", href: "/portfolio" },
     { label: "我的", icon: "person", href: "/profile" },
   ];
-
-  // 获取基金数据
-  // 获取基金数据
-  const getData = async () => {
-    if (fundList.length === 0) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const codes = fundList.join(",");
-      // 保持 deviceId 逻辑不变...
-      const userId = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
-        var r = (Math.random() * 16) | 0,
-          v = c == "x" ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
-      
-      const apiUrl = `/api/fund?deviceid=${userId}&Fcodes=${codes}`;
-      
-      const response = await fetch(apiUrl);
-      const res = await response.json();
-      
-      // 【修改点】增加对错误信息的判断
-      if (res && res.Datas) {
-        const dataList: Fund[] = res.Datas.map((val: any) => {
-           // ... 保持原有的 map 逻辑 ...
-           const existingFund = fundsRef.current.find(f => f.fundcode === val.FCODE);
-           const fundTags = existingFund && existingFund.tags.length > 0 ? existingFund.tags : ["全部"];
-           const isStarred = existingFund ? existingFund.isStarred : false;
-
-           let data: Fund = {
-            fundcode: val.FCODE,
-            name: val.SHORTNAME,
-            dwjz: val.NAV == null || isNaN(val.NAV) ? "--" : val.NAV.toString(),
-            gsz: val.GSZ == null || isNaN(val.GSZ) ? "--" : val.GSZ.toString(),
-            gszzl: val.GSZZL == null || isNaN(val.GSZZL) ? "0.00" : val.GSZZL.toString(),
-            gztime: val.GZTIME || "--",
-            tags: fundTags,
-            isStarred: isStarred
-          };
-          
-          if (val.PDATE !== "--" && val.GZTIME && val.PDATE === val.GZTIME.substr(0, 10)) {
-            data.gsz = val.NAV ? val.NAV.toString() : data.gsz;
-            data.gszzl = val.NAVCHGRT ? val.NAVCHGRT.toString() : "0.00";
-            data.hasReplace = true;
-          }
-          return data;
-        });
-        
-        setFunds(dataList);
-      } else {
-        // 如果 API 返回了错误信息（如“网络繁忙”），打印日志但不清空列表
-        console.warn("API未返回有效数据:", res);
-        if (res.Message) {
-            console.error("API Error Message:", res.Message);
-        }
-      }
-    } catch (error) {
-      console.error('获取基金数据失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // 使用模拟数据 (仅在 API 失败且无本地数据时调用)
-  const useMockData = () => {
-    const mockData: Fund[] = [
-      {
-        fundcode: "001618",
-        name: "嘉实新兴产业股票",
-        dwjz: "1.2540",
-        gsz: "1.2680",
-        gszzl: "1.12",
-        gztime: "2026-02-05 15:00",
-        tags: ["全部", "科技"],
-      },
-      {
-        fundcode: "005827",
-        name: "易方达蓝筹精选混合",
-        dwjz: "2.4580",
-        gsz: "2.4890",
-        gszzl: "1.26",
-        gztime: "2026-02-05 15:00",
-        tags: ["全部", "消费"],
-      },
-    ];
-    // 合并现有标签逻辑
-    const mergedMock = mockData.map(mock => {
-        const exist = fundsRef.current.find(f => f.fundcode === mock.fundcode);
-        return exist ? { ...mock, tags: exist.tags, isStarred: exist.isStarred } : mock;
-    });
-    setFunds(mergedMock);
-  };
-
-  // 1. 基金过滤逻辑
-  const filteredFunds = funds.filter(f => f.tags.includes(activeTag) || activeTag === "全部");
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[430px] mx-auto overflow-x-hidden shadow-2xl bg-background-light dark:bg-background-dark font-display text-white">
@@ -209,7 +297,7 @@ export default function FundsPage() {
       {/* Tabs */}
       <div className="px-4 border-b border-white/5">
         <div className="flex gap-6 overflow-x-auto no-scrollbar">
-          {tags.map((tab, i) => (
+          {tags.map((tab) => (
             <a
               key={tab}
               className={`flex flex-col items-center justify-center border-b-2 pb-3 pt-4 shrink-0 transition-colors ${
@@ -236,102 +324,105 @@ export default function FundsPage() {
         {/* Section Header */}
         <div className="flex items-center justify-between px-1 py-2">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-            基金列表 ({filteredFunds.length})
+            基金列表 ({processedFunds.length})
           </span>
-          <Icon name="sort" className="text-slate-500 text-sm cursor-pointer" />
+          <button onClick={() => setSortType(prev => prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none')}>
+            <Icon name={sortType === 'asc' ? "arrow_upward" : sortType === 'desc' ? "arrow_downward" : "sort"} className="text-slate-500 text-sm cursor-pointer" />
+          </button>
         </div>
 
         {/* Fund List Items */}
         <div className="space-y-3">
-          {loading && funds.length === 0 ? (
-            // 加载状态 (仅当初次加载且无缓存时显示)
-            Array.from({ length: 3 }).map((_, index) => (
-              <GlassCard
-                key={index}
-                className="rounded-xl p-4 flex items-center justify-between"
-                variant="light"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center justify-center rounded-lg shrink-0 size-12 bg-slate-700/50">
-                    <Icon name="trending_up" className="text-slate-400" />
-                  </div>
-                  <div className="flex flex-col">
-                    <p className="text-slate-400 text-base font-semibold">加载中...</p>
-                    <p className="text-slate-500 text-sm font-medium font-mono">----</p>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  <p className="text-slate-400 text-sm font-bold">--.--</p>
-                  <div className="px-3 py-1 rounded-lg text-sm font-bold min-w-[70px] text-center bg-slate-700/50 text-slate-400">
-                    --.--%
-                  </div>
-                </div>
-              </GlassCard>
-            ))
-          ) : filteredFunds.length > 0 ? (
-            // 数据加载完成
-            filteredFunds.map((fund) => {
+          {processedFunds.length > 0 ? (
+            processedFunds.map((fund) => {
               const isUp = parseFloat(fund.gszzl) >= 0;
+              // 格式化时间，如果包含日期则只显示时间，否则显示全部
+              const displayTime = fund.gztime.includes(" ") ? fund.gztime.split(" ")[1] : fund.gztime;
+              
               return (
                 <GlassCard
                   key={fund.fundcode}
-                  className="rounded-xl p-4 flex items-center justify-between hover:bg-white/[0.05] transition-all"
+                  className="rounded-xl p-4 flex items-center justify-between hover:bg-white/[0.05] transition-all group relative overflow-hidden"
                   variant="light"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center justify-center rounded-lg shrink-0 size-12 bg-slate-800/50">
-                      <Icon name={isUp ? "trending_up" : "trending_down"} className={isUp ? "text-gain-red" : "text-loss-green"} />
-                    </div>
+                   {/* 装饰背景，根据涨跌变化颜色 */}
+                   <div className={`absolute -right-4 -top-4 w-20 h-20 rounded-full blur-2xl opacity-10 ${isUp ? 'bg-gain-red' : 'bg-loss-green'}`}></div>
+
+                  <div className="flex items-center gap-3 z-10">
+                     {/* 星标按钮 */}
+                    <button 
+                       onClick={(e) => { e.stopPropagation(); handleToggleStar(fund.fundcode); }}
+                       className="p-1 -ml-2 rounded-full hover:bg-white/10 transition-colors"
+                    >
+                      <Icon 
+                        name={fund.isStarred ? "star" : "star_outline"} 
+                        className={`text-lg ${fund.isStarred ? "text-yellow-400 fill-current" : "text-slate-600"}`} 
+                      />
+                    </button>
+
                     <div className="flex flex-col">
-                      <p className="text-white text-base font-semibold line-clamp-1">
-                        {fund.name}
-                      </p>
-                      <p className="text-slate-400 text-sm font-medium font-mono tracking-tight">
-                        {fund.fundcode}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-white text-base font-semibold line-clamp-1 max-w-[140px]">
+                            {fund.name}
+                        </p>
+                        {/* 如果使用了真实净值，显示一个小标记 */}
+                        {fund.hasReplace && (
+                            <span className="text-[9px] px-1 bg-primary/20 text-primary rounded border border-primary/30">实</span>
+                        )}
+                      </div>
+                      
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-slate-400 text-sm font-medium font-mono tracking-tight bg-slate-800/50 px-1 rounded">
+                            {fund.fundcode}
+                        </p>
+                        {/* 显示标签 */}
+                        {fund.tags.find(t => t !== "全部") && (
+                            <span className="text-xs text-slate-500">{fund.tags.find(t => t !== "全部")}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <p className="text-white text-sm font-bold">{fund.gsz}</p>
-                    <div className={`px-3 py-1 rounded-lg text-sm font-bold min-w-[70px] text-center ${
+
+                  <div className="flex flex-col items-end gap-1 z-10">
+                    <p className={`text-sm font-bold font-mono ${isUp ? "text-gain-red" : "text-loss-green"}`}>
+                        {fund.gsz}
+                    </p>
+                    <div className={`px-3 py-1 rounded-lg text-sm font-bold min-w-[70px] text-center font-mono ${
                       isUp
                         ? "bg-gain-red/20 text-gain-red"
                         : "bg-loss-green/20 text-loss-green"
                     }`}>
                       {isUp ? "+" : ""}{fund.gszzl}%
                     </div>
+                    <p className="text-[10px] text-slate-600 font-mono scale-90 origin-right">
+                        {displayTime}
+                    </p>
                   </div>
                 </GlassCard>
               );
             })
           ) : (
             // 无数据状态
-            <div className="space-y-3">
-              <button 
-                className="w-full relative overflow-hidden glass-card rounded-xl p-6 border-dashed border-primary/40 flex flex-col items-center justify-center gap-2 group hover:bg-primary/5 transition-all"
-                onClick={() => setIsModalOpen(true)}
-              >
-                <div className="size-12 rounded-full bg-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                  <Icon name="add_circle" className="text-3xl" />
-                </div>
-                <p className="text-primary font-bold">添加自选基金</p>
-                <p className="text-slate-500 text-xs">实时追踪更多基金估值</p>
-              </button>
-            </div>
+            <button 
+              className="w-full relative overflow-hidden glass-card rounded-xl p-6 border-dashed border-primary/40 flex flex-col items-center justify-center gap-2 group hover:bg-primary/5 transition-all"
+              onClick={() => setIsModalOpen(true)}
+            >
+              <div className="size-12 rounded-full bg-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                <Icon name="add_circle" className="text-3xl" />
+              </div>
+              <p className="text-primary font-bold">添加自选基金</p>
+            </button>
           )}
         </div>
 
-        {/* Add Fund Button Card - 底部补充按钮 */}
-        {filteredFunds.length > 0 && (
+        {/* Add Fund Button Card - 如果有数据也显示底部添加按钮 */}
+        {processedFunds.length > 0 && (
           <button 
-            className="w-full relative overflow-hidden glass-card rounded-xl p-6 border-dashed border-primary/40 flex flex-col items-center justify-center gap-2 group hover:bg-primary/5 transition-all"
+            className="w-full relative overflow-hidden glass-card rounded-xl p-4 border-dashed border-white/10 flex flex-row items-center justify-center gap-2 group hover:bg-white/5 transition-all mt-4"
             onClick={() => setIsModalOpen(true)}
           >
-            <div className="size-12 rounded-full bg-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-              <Icon name="add_circle" className="text-3xl" />
-            </div>
-            <p className="text-primary font-bold">添加自选基金</p>
-            <p className="text-slate-500 text-xs">实时追踪更多基金估值</p>
+            <Icon name="add_circle" className="text-xl text-slate-400 group-hover:text-white" />
+            <p className="text-slate-400 text-sm group-hover:text-white">添加更多基金</p>
           </button>
         )}
       </main>
@@ -343,30 +434,7 @@ export default function FundsPage() {
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         existingTags={tags.filter(tag => tag !== "全部")}
-        onSave={(newFund: Fund, fundTags: string[]) => {
-          // 检查基金代码是否已经存在，避免重复添加
-          if (!fundList.includes(newFund.fundcode)) {
-            const updatedFundList = [...fundList, newFund.fundcode];
-            setFundList(updatedFundList);
-          }
-          
-          // 检查基金是否已经存在，避免重复添加
-          if (!funds.some(f => f.fundcode === newFund.fundcode)) {
-            const updatedFunds = [...funds, {
-              ...newFund,
-              tags: ["全部", ...fundTags]
-            }];
-            setFunds(updatedFunds);
-            fundsRef.current = updatedFunds; // 立即更新 Ref
-          }
-          
-          setIsModalOpen(false);
-          
-          const newTags = fundTags.filter(tag => !tags.includes(tag));
-          if (newTags.length > 0) {
-            setTags(prev => [...prev, ...newTags]);
-          }
-        }}
+        onSave={handleSaveFund}
       />
     </div>
   );
