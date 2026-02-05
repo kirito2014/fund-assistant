@@ -368,8 +368,13 @@ export default function FundsPage() {
       </header>
       
       {/* Tabs */}
-      <div className="px-4 border-b border-white/5">
-        <div className="flex items-center justify-between overflow-x-auto no-scrollbar">
+      <div className="px-4 border-b border-white/5 relative">
+        {/* 左侧阴影 */}
+        <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background-light dark:from-background-dark to-transparent z-10 pointer-events-none"></div>
+        {/* 右侧阴影 */}
+        <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background-light dark:from-background-dark to-transparent z-10 pointer-events-none"></div>
+        
+        <div className="flex items-center justify-between overflow-x-auto no-scrollbar py-4">
           <div className="flex gap-6">
             {tags.map((tab) => {
               // 计算每个标签下的基金数量
@@ -380,7 +385,7 @@ export default function FundsPage() {
               return (
                 <a
                   key={tab}
-                  className={`flex flex-col items-center justify-center border-b-2 pb-3 pt-4 shrink-0 transition-colors ${
+                  className={`flex flex-col items-center justify-center border-b-2 pb-3 pt-0 shrink-0 transition-colors ${
                     tab === activeTag
                       ? "border-primary text-white"
                       : "border-transparent text-slate-400 hover:text-white"
@@ -400,13 +405,13 @@ export default function FundsPage() {
           </div>
           <div className="flex items-center gap-4 shrink-0 ml-4">
             <button 
-              className="text-slate-500 hover:text-white"
+              className="text-slate-500 hover:text-white flex items-center justify-center h-full"
               onClick={() => setIsTagModalOpen(true)}
             >
               <Icon name="label" className="text-sm cursor-pointer" />
             </button>
             <button 
-              className={`${nameSortType !== 'none' ? 'text-white' : 'text-slate-500'}`}
+              className={`${nameSortType !== 'none' ? 'text-white' : 'text-slate-500'} flex items-center justify-center h-full`}
               onClick={() => {
                 setNameSortType(prev => {
                   if (prev === 'none') {
@@ -425,7 +430,7 @@ export default function FundsPage() {
               <Icon name={nameSortType === 'asc' ? "arrow_upward" : nameSortType === 'desc' ? "arrow_downward" : "sort_by_alpha"} className="text-sm cursor-pointer" />
             </button>
             <button 
-              className={`${changeSortType !== 'none' ? 'text-white' : 'text-slate-500'}`}
+              className={`${changeSortType !== 'none' ? 'text-white' : 'text-slate-500'} flex items-center justify-center h-full`}
               onClick={() => {
                 setChangeSortType(prev => {
                   if (prev === 'none') {
@@ -558,16 +563,16 @@ export default function FundsPage() {
                     </GlassCard>
                     {/* 左滑操作按钮 */}
                     <div className="absolute top-0 right-0 bottom-0 flex items-center gap-2 p-4 z-0 rounded-xl bg-background-light dark:bg-background-dark">
-                      {activeTag === "自选" && fund.tags.includes("自选") ? (
+                      {activeTag !== "全部" && fund.tags.includes(activeTag) ? (
                         <button 
                           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold"
                           onClick={() => {
-                            // 从自选标签移除
+                            // 从当前标签移除
                             setFunds(prev => prev.map(f => {
                               if (f.fundcode === fund.fundcode) {
                                 return {
                                   ...f,
-                                  tags: f.tags.filter(tag => tag !== "自选")
+                                  tags: f.tags.filter(tag => tag !== activeTag)
                                 };
                               }
                               return f;
