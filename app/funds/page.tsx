@@ -201,11 +201,14 @@ export default function FundsPage() {
     ));
   };
 
-  const handleSaveFund = (newFund: any, tags: string[]) => {
+  const handleSaveFund = (newFund: any, tags: string[] = ["全部"]) => {
     const code = newFund.fundcode || newFund; // 兼容不同传参
     
-    // 更新列表
-    if (!fundList.includes(code)) {
+    // 检查是否是从自选标签页面添加基金
+    const isWatchlistAdd = typeof newFund === 'string';
+    
+    if (!isWatchlistAdd && !fundList.includes(code)) {
+      // 更新列表（仅当添加新基金时）
       const newList = [...fundList, code];
       setFundList(newList);
       fundListRef.current = newList;
@@ -226,12 +229,19 @@ export default function FundsPage() {
       setTimeout(() => refreshAllFunds([code]), 100);
     }
     
-    // 更新标签（如果是已有基金更新标签）
+    // 更新标签
     setFunds(prev => prev.map(f => {
         if (f.fundcode === code) {
-            // 合并新标签
-            const mergedTags = Array.from(new Set([...f.tags, ...tags]));
-            return { ...f, tags: mergedTags };
+            if (isWatchlistAdd) {
+                // 从自选标签页面添加，只添加自选标签
+                if (!f.tags.includes("自选")) {
+                    return { ...f, tags: [...f.tags, "自选"] };
+                }
+            } else {
+                // 合并新标签
+                const mergedTags = Array.from(new Set([...f.tags, ...tags]));
+                return { ...f, tags: mergedTags };
+            }
         }
         return f;
     }));
@@ -239,9 +249,11 @@ export default function FundsPage() {
     setIsModalOpen(false);
 
     // 更新顶部标签栏
-    const newTags = tags.filter(tag => !tags.includes(tag));
-    if (newTags.length > 0) {
-      setTags(prev => [...prev, ...newTags]);
+    if (!isWatchlistAdd) {
+      const newTags = tags.filter(tag => !tags.includes(tag));
+      if (newTags.length > 0) {
+        setTags(prev => [...prev, ...newTags]);
+      }
     }
   };
 
@@ -571,6 +583,7 @@ export default function FundsPage() {
         onClose={() => setIsModalOpen(false)} 
         onSave={handleSaveFund}
         existingFunds={funds}
+        activeTag={activeTag}
       />
     </div>
   );
