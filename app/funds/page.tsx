@@ -43,85 +43,93 @@ export default function FundsPage() {
   // 默认基金列表
   const [fundList, setFundList] = useState<string[]>(["001618", "001630", "008887", "005827", "161725"]);
 
-  // 使用 Ref 解决闭包陷阱，确保在回调中能访问最新数据
+  // 使用 Ref 解决闭包陷阱
   const fundsRef = useRef<Fund[]>([]);
   const fundListRef = useRef<string[]>([]);
 
-  // --- 持久化逻辑 ---
+  // 关键修复：添加初始化标志，防止默认空数据覆盖 LocalStorage 中的旧数据
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // --- 持久化逻辑 (修复版：仅在初始化完成后保存) ---
   useEffect(() => {
+    if (!isInitialized) return; // 如果还没加载完，不要保存
     fundsRef.current = funds;
     if (funds.length > 0) localStorage.setItem('savedFunds', JSON.stringify(funds));
-  }, [funds]);
+  }, [funds, isInitialized]);
 
   useEffect(() => {
+    if (!isInitialized) return; // 如果还没加载完，不要保存
     fundListRef.current = fundList;
     localStorage.setItem('savedFundList', JSON.stringify(fundList));
-  }, [fundList]);
+  }, [fundList, isInitialized]);
 
   useEffect(() => {
+    if (!isInitialized) return; // 如果还没加载完，不要保存
     localStorage.setItem('savedTags', JSON.stringify(tags));
-  }, [tags]);
+  }, [tags, isInitialized]);
 
-  // --- 初始化加载 (升级版：结构缓存优先) ---
+  // --- 初始化加载 (升级版：结构缓存优先 + 初始化锁) ---
   useEffect(() => {
     const savedTags = localStorage.getItem('savedTags');
     const savedFundList = localStorage.getItem('savedFundList');
     const savedFunds = localStorage.getItem('savedFunds');
 
     // 1. 恢复标签结构
-    if (savedTags) setTags(JSON.parse(savedTags));
+    if (savedTags) {
+      try {
+        setTags(JSON.parse(savedTags));
+      } catch (e) {
+        console.error("Failed to parse savedTags", e);
+      }
+    }
     
     // 2. 恢复基金列表代码
     if (savedFundList) {
-      const list = JSON.parse(savedFundList);
-      setFundList(list);
-      fundListRef.current = list;
+      try {
+        const list = JSON.parse(savedFundList);
+        setFundList(list);
+        fundListRef.current = list;
+      } catch (e) { console.error(e); }
     }
 
     let codesToRefresh: string[] = [];
 
-    // 3. 数据分离加载策略：
-    // 如果有缓存的完整基金数据（包含名称、标签等结构），立即渲染，
-    // 哪怕净值数据是旧的。这样页面不会闪烁。
+    // 3. 数据分离加载策略
     if (savedFunds) {
-       const parsedFunds: Fund[] = JSON.parse(savedFunds);
-       setFunds(parsedFunds);
-       // 准备刷新这些基金
-       codesToRefresh = parsedFunds.map(f => f.fundcode);
+       try {
+         const parsedFunds: Fund[] = JSON.parse(savedFunds);
+         setFunds(parsedFunds);
+         codesToRefresh = parsedFunds.map(f => f.fundcode);
+       } catch (e) { console.error(e); }
     } else if (savedFundList) {
-       // 如果只有代码列表没有详细数据，使用代码列表
        codesToRefresh = JSON.parse(savedFundList);
     } else {
-       // 只有默认列表
        codesToRefresh = fundList;
     }
     
-    // 4. 立即触发网络刷新，更新为最新数据
-    // 使用 setTimeout 将其放入宏任务队列，确保 UI 先完成首次渲染
+    // 标记初始化完成，允许后续的 Save 操作
+    setIsInitialized(true);
+
+    // 4. 立即触发网络刷新
     setTimeout(() => {
         refreshAllFunds(codesToRefresh);
     }, 0);
 
   }, []);
 
-  // --- 核心逻辑：定义全局 JSONP 回调 (参考 Reference Project) ---
+  // --- 核心逻辑：定义全局 JSONP 回调 ---
   useEffect(() => {
-    // 注册天天基金的回调函数
     window.jsonpgz = (gzData: any) => {
       if (!gzData || !gzData.fundcode) return;
-      
       const code = gzData.fundcode;
-      
-      // 1. 获取到天天基金数据后，立即去获取腾讯财经数据进行比对
       fetchTencentData(code, gzData);
     };
 
-    // 设置定时器每 10 分钟刷新一次，根据 autoRefresh 状态控制
     const interval = setInterval(() => {
       if (autoRefresh) {
         refreshAllFunds(fundListRef.current);
       }
-    }, 600000); // 10分钟 = 600000毫秒
+    }, 600000);
 
     return () => clearInterval(interval);
   }, []);
@@ -131,32 +139,27 @@ export default function FundsPage() {
     const script = document.createElement("script");
     script.src = `https://qt.gtimg.cn/q=jj${code}`;
     script.onload = () => {
-      // 腾讯数据格式: v_jj005827 = "代码~名称~单位净值~净值日期~..."
       const tencentVar = window[`v_jj${code}`];
       if (tencentVar) {
         const tDataArr = tencentVar.split("~");
         if (tDataArr.length > 5) {
-          const tencentDate = tDataArr[3]; // 净值日期
-          const tencentNav = tDataArr[1];  // 单位净值
-          const tencentChange = tDataArr[5]; // 涨跌幅
-          const gzDate = gzData.jzrq; // 天天基金的净值日期
+          const tencentDate = tDataArr[3]; 
+          const tencentNav = tDataArr[1];  
+          const tencentChange = tDataArr[5]; 
+          const gzDate = gzData.jzrq; 
 
-          // 盘后净值已更新，使用腾讯数据覆盖估值
           if (tencentDate && (!gzDate || tencentDate >= gzDate)) {
              gzData.gsz = tencentNav;
              gzData.gszzl = tencentChange;
-             gzData.hasReplace = true; // 标记已被替换
-             gzData.gztime = `净值 ${tencentDate}`; // 更新显示时间为净值日期
+             gzData.hasReplace = true; 
+             gzData.gztime = `净值 ${tencentDate}`; 
           }
         }
       }
-      // 更新单个基金状态
       updateFundState(gzData);
-      // 清理脚本
       document.body.removeChild(script);
     };
     script.onerror = () => {
-        // 如果腾讯接口失败，直接使用天天基金数据
         updateFundState(gzData);
         if(document.body.contains(script)) document.body.removeChild(script);
     };
@@ -166,7 +169,6 @@ export default function FundsPage() {
   // --- 辅助函数：更新 React 状态 ---
   const updateFundState = (newData: any) => {
     setFunds(prevFunds => {
-      // 检查是否已存在，保留原有的标签和星标状态
       const existingIndex = prevFunds.findIndex(f => f.fundcode === newData.fundcode);
       const existingTags = existingIndex > -1 ? prevFunds[existingIndex].tags : ["全部"];
       const existingStar = existingIndex > -1 ? prevFunds[existingIndex].isStarred : false;
@@ -174,7 +176,6 @@ export default function FundsPage() {
       const newFundObj: Fund = {
         fundcode: newData.fundcode,
         name: newData.name,
-        // 如果 API 返回为空，给默认值
         dwjz: newData.dwjz || "--", 
         gsz: newData.gsz || newData.dwjz || "--",
         gszzl: newData.gszzl || "0.00",
@@ -198,17 +199,11 @@ export default function FundsPage() {
   const refreshAllFunds = (codes: string[]) => {
     if (!codes || codes.length === 0) return;
     
-    // 遍历创建 Script 标签请求天天基金
     codes.forEach(code => {
       const script = document.createElement("script");
-      // 添加时间戳防止缓存
       script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${new Date().getTime()}`;
-      script.onload = () => {
-         // 请求成功后会执行 window.jsonpgz，逻辑在 useEffect 中
-         document.body.removeChild(script);
-      };
+      script.onload = () => { document.body.removeChild(script); };
       script.onerror = () => {
-         // 错误处理：可能是新发基金查不到估值，尝试仅查腾讯数据
          fetchTencentData(code, { fundcode: code, name: "加载中...", jzrq: "" });
          if(document.body.contains(script)) document.body.removeChild(script);
       };
@@ -223,7 +218,8 @@ export default function FundsPage() {
     ));
   };
 
-  const handleSaveFund = (newFund: any, tags: string[] = ["全部"]) => {
+  // 关键修复：重命名参数 selectedTags 避免与 state tags 冲突
+  const handleSaveFund = (newFund: any, selectedTags: string[] = ["全部"]) => {
     const code = newFund.fundcode || newFund; 
     const isTagAdd = typeof newFund === 'string';
     
@@ -239,23 +235,24 @@ export default function FundsPage() {
           gsz: "--",
           gszzl: "0.00",
           gztime: "--",
-          tags: ["全部", ...tags],
+          tags: ["全部", ...selectedTags],
           isStarred: false
       }]);
 
       setTimeout(() => refreshAllFunds([code]), 100);
     }
     
+    // 更新基金自身的标签
     setFunds(prev => prev.map(f => {
         if (f.fundcode === code) {
             if (isTagAdd) {
                 const updatedTags = [...f.tags];
-                tags.forEach(tag => {
+                selectedTags.forEach(tag => {
                     if (!updatedTags.includes(tag)) updatedTags.push(tag);
                 });
                 return { ...f, tags: updatedTags };
             } else {
-                const mergedTags = Array.from(new Set([...f.tags, ...tags]));
+                const mergedTags = Array.from(new Set([...f.tags, ...selectedTags]));
                 return { ...f, tags: mergedTags };
             }
         }
@@ -264,11 +261,16 @@ export default function FundsPage() {
 
     setIsModalOpen(false);
 
+    // 更新顶部标签栏 (修复变量作用域问题)
     if (!isTagAdd) {
-      const newTags = tags.filter(tag => !tags.includes(tag));
-      if (newTags.length > 0) {
-        setTags(prev => [...prev, ...newTags]);
-      }
+      setTags(prevTags => {
+        // 在这里，prevTags 是当前的状态，selectedTags 是用户新选的
+        const newTagsToAdd = selectedTags.filter(tag => !prevTags.includes(tag));
+        if (newTagsToAdd.length > 0) {
+          return [...prevTags, ...newTagsToAdd];
+        }
+        return prevTags;
+      });
     }
   };
 
@@ -329,7 +331,6 @@ export default function FundsPage() {
     { label: "我的", icon: "person", href: "/profile" },
   ];
 
-  // 分离标签：全部单独处理，其他标签过滤出来
   const scrollableTags = tags.filter(t => t !== "全部");
 
   return (
@@ -357,10 +358,9 @@ export default function FundsPage() {
         </div>
       </header>
       
-      {/* --- 重构后的 Tabs 区域 --- */}
+      {/* Tabs */}
       <div className="relative z-40 w-full flex items-center h-[52px] border-b border-white/5 bg-background-light dark:bg-background-dark">
-        
-        {/* 1. 左侧固定：全部 */}
+        {/* Fixed Left: All */}
         <div className="relative z-20 h-full flex items-center justify-center px-4 bg-background-light dark:bg-background-dark shadow-[4px_0_12px_rgba(0,0,0,0.1)]">
            <a
               className={`flex flex-col items-center justify-center h-full border-b-2 transition-colors ${
@@ -380,12 +380,9 @@ export default function FundsPage() {
             </a>
         </div>
 
-        {/* 2. 中间滚动：其他标签 (转盘效果) */}
+        {/* Scrollable Middle */}
         <div className="flex-1 h-full relative overflow-hidden group">
-            {/* 左侧渐变遮罩 (Simulate depth) */}
             <div className="absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-background-light dark:from-background-dark to-transparent z-10 pointer-events-none" />
-            
-            {/* 滚动容器 */}
             <div className="h-full overflow-x-auto no-scrollbar flex items-center pl-2 pr-2 gap-6">
                 {scrollableTags.map((tab) => {
                   const count = funds.filter(fund => fund.tags.includes(tab)).length;
@@ -409,15 +406,12 @@ export default function FundsPage() {
                     </a>
                   );
                 })}
-                {/* 占位符，防止最后一个标签被右侧遮罩挡住 */}
                 <div className="w-2 shrink-0"></div>
             </div>
-
-            {/* 右侧渐变遮罩 */}
             <div className="absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-background-light dark:from-background-dark to-transparent z-10 pointer-events-none" />
         </div>
 
-        {/* 3. 右侧固定：操作按钮 */}
+        {/* Fixed Right: Tools */}
         <div className="relative z-20 h-full flex items-center gap-2 pl-2 pr-4 bg-background-light dark:bg-background-dark shadow-[-4px_0_12px_rgba(0,0,0,0.1)]">
             <button 
               className="text-slate-500 hover:text-white flex items-center justify-center size-8 rounded-full hover:bg-white/5 transition-colors"
@@ -456,10 +450,7 @@ export default function FundsPage() {
         </div>
       </div>
 
-      {/* Main Content */}
       <main className="flex-1 pb-24 p-4 space-y-3">
-
-        {/* Fund List Items */}
         <div className="space-y-3">
           {processedFunds.length > 0 ? (
             processedFunds.map((fund) => {
