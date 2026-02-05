@@ -9,6 +9,15 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
   const [results, setResults] = useState([]);
   const [selectedFunds, setSelectedFunds] = useState<any[]>([]);
 
+  // 每次打开模态框时清空待添加列表
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedFunds([]);
+      setSearchKey("");
+      setResults([]);
+    }
+  }, [isOpen]);
+
   // 搜索接口参考 App.vue 的 remoteMethod
   useEffect(() => {
     if (searchKey.length < 2) return;
