@@ -40,7 +40,7 @@ export default function FundsPage() {
   const [isTagModalOpen, setIsTagModalOpen] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   
-  // 默认基金列表 (保留你原有的默认值)
+  // 默认基金列表
   const [fundList, setFundList] = useState<string[]>(["001618", "001630", "008887", "005827", "161725"]);
 
   // 使用 Ref 解决闭包陷阱，确保在回调中能访问最新数据
@@ -62,25 +62,46 @@ export default function FundsPage() {
     localStorage.setItem('savedTags', JSON.stringify(tags));
   }, [tags]);
 
-  // --- 初始化加载 ---
+  // --- 初始化加载 (升级版：结构缓存优先) ---
   useEffect(() => {
     const savedTags = localStorage.getItem('savedTags');
     const savedFundList = localStorage.getItem('savedFundList');
     const savedFunds = localStorage.getItem('savedFunds');
 
+    // 1. 恢复标签结构
     if (savedTags) setTags(JSON.parse(savedTags));
+    
+    // 2. 恢复基金列表代码
     if (savedFundList) {
       const list = JSON.parse(savedFundList);
       setFundList(list);
       fundListRef.current = list;
     }
-    
-    // 初始化后立即刷新一次，不使用缓存数据
-    if (savedFundList) {
-       refreshAllFunds(JSON.parse(savedFundList));
+
+    let codesToRefresh: string[] = [];
+
+    // 3. 数据分离加载策略：
+    // 如果有缓存的完整基金数据（包含名称、标签等结构），立即渲染，
+    // 哪怕净值数据是旧的。这样页面不会闪烁。
+    if (savedFunds) {
+       const parsedFunds: Fund[] = JSON.parse(savedFunds);
+       setFunds(parsedFunds);
+       // 准备刷新这些基金
+       codesToRefresh = parsedFunds.map(f => f.fundcode);
+    } else if (savedFundList) {
+       // 如果只有代码列表没有详细数据，使用代码列表
+       codesToRefresh = JSON.parse(savedFundList);
     } else {
-       refreshAllFunds(fundList);
+       // 只有默认列表
+       codesToRefresh = fundList;
     }
+    
+    // 4. 立即触发网络刷新，更新为最新数据
+    // 使用 setTimeout 将其放入宏任务队列，确保 UI 先完成首次渲染
+    setTimeout(() => {
+        refreshAllFunds(codesToRefresh);
+    }, 0);
+
   }, []);
 
   // --- 核心逻辑：定义全局 JSONP 回调 (参考 Reference Project) ---
@@ -105,7 +126,7 @@ export default function FundsPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // --- 辅助函数：获取腾讯数据并整合 (参考 Reference Project 逻辑) ---
+  // --- 辅助函数：获取腾讯数据并整合 ---
   const fetchTencentData = (code: string, gzData: any) => {
     const script = document.createElement("script");
     script.src = `https://qt.gtimg.cn/q=jj${code}`;
@@ -120,8 +141,7 @@ export default function FundsPage() {
           const tencentChange = tDataArr[5]; // 涨跌幅
           const gzDate = gzData.jzrq; // 天天基金的净值日期
 
-          // 参考项目核心逻辑：如果腾讯的日期 >= 天天基金日期，说明盘后净值已更新，使用腾讯数据覆盖估值
-          // 这样能保证收盘后显示的是准确的净值，而不是预估值
+          // 盘后净值已更新，使用腾讯数据覆盖估值
           if (tencentDate && (!gzDate || tencentDate >= gzDate)) {
              gzData.gsz = tencentNav;
              gzData.gszzl = tencentChange;
@@ -138,7 +158,7 @@ export default function FundsPage() {
     script.onerror = () => {
         // 如果腾讯接口失败，直接使用天天基金数据
         updateFundState(gzData);
-        document.body.removeChild(script);
+        if(document.body.contains(script)) document.body.removeChild(script);
     };
     document.body.appendChild(script);
   };
@@ -204,18 +224,14 @@ export default function FundsPage() {
   };
 
   const handleSaveFund = (newFund: any, tags: string[] = ["全部"]) => {
-    const code = newFund.fundcode || newFund; // 兼容不同传参
-    
-    // 检查是否是从标签页面添加基金（自选或自定义标签）
+    const code = newFund.fundcode || newFund; 
     const isTagAdd = typeof newFund === 'string';
     
     if (!isTagAdd && !fundList.includes(code)) {
-      // 更新列表（仅当添加新基金时）
       const newList = [...fundList, code];
       setFundList(newList);
       fundListRef.current = newList;
       
-      // 预先添加一个占位数据，提升体验
       setFunds(prev => [...prev, {
           fundcode: code,
           name: "加载中...",
@@ -227,24 +243,18 @@ export default function FundsPage() {
           isStarred: false
       }]);
 
-      // 立即触发一次刷新
       setTimeout(() => refreshAllFunds([code]), 100);
     }
     
-    // 更新标签
     setFunds(prev => prev.map(f => {
         if (f.fundcode === code) {
             if (isTagAdd) {
-                // 从标签页面添加，添加指定标签
                 const updatedTags = [...f.tags];
                 tags.forEach(tag => {
-                    if (!updatedTags.includes(tag)) {
-                        updatedTags.push(tag);
-                    }
+                    if (!updatedTags.includes(tag)) updatedTags.push(tag);
                 });
                 return { ...f, tags: updatedTags };
             } else {
-                // 合并新标签
                 const mergedTags = Array.from(new Set([...f.tags, ...tags]));
                 return { ...f, tags: mergedTags };
             }
@@ -252,10 +262,8 @@ export default function FundsPage() {
         return f;
     }));
 
-    // 关闭模态框
     setIsModalOpen(false);
 
-    // 更新顶部标签栏
     if (!isTagAdd) {
       const newTags = tags.filter(tag => !tags.includes(tag));
       if (newTags.length > 0) {
@@ -264,15 +272,8 @@ export default function FundsPage() {
     }
   };
 
-  // 处理标签管理保存
   const handleSaveTags = (originalTags: string[], updatedTags: string[]) => {
-    // 获取所有需要删除的标签
     const deletedTags = originalTags.filter(tag => !updatedTags.includes(tag));
-    
-    // 获取所有需要添加的标签
-    const addedTags = updatedTags.filter(tag => !originalTags.includes(tag));
-    
-    // 获取所有需要重命名的标签
     const renamedTags = updatedTags.map((newName, index) => {
       const oldName = originalTags[index];
       if (newName !== oldName) {
@@ -281,42 +282,30 @@ export default function FundsPage() {
       return null;
     }).filter((item): item is { oldName: string; newName: string } => item !== null);
     
-    // 更新基金标签
     setFunds(prev => prev.map(fund => {
       let updatedFundTags = [...fund.tags];
-      
-      // 处理删除标签
       deletedTags.forEach(tag => {
         updatedFundTags = updatedFundTags.filter(t => t !== tag);
       });
-      
-      // 处理重命名标签
       renamedTags.forEach(({ oldName, newName }) => {
         updatedFundTags = updatedFundTags.map(t => t === oldName ? newName : t);
       });
-      
       return { ...fund, tags: updatedFundTags };
     }));
     
-    // 更新顶部标签栏
     setTags(prev => {
-      // 保留"全部"和"自选"标签
       const baseTags = prev.filter(t => t === "全部" || t === "自选");
-      // 添加所有用户自定义标签
       const customTags = updatedTags.filter(t => t !== "全部" && t !== "自选");
-      // 合并标签，确保没有重复
       return [...baseTags, ...customTags.filter(t => !baseTags.includes(t as any))];
     });
   };
 
-  // --- 渲染逻辑 (保持原有样式) ---
+  // --- 渲染逻辑 ---
   const processedFunds = (() => {
     let list = [...funds];
-    // 过滤
     if (activeTag !== "全部") {
       list = list.filter(f => f.tags.includes(activeTag));
     }
-    // 排序
     if (sortBy === 'name' && nameSortType !== 'none') {
       list.sort((a, b) => {
         const nameA = a.name.localeCompare(b.name);
@@ -329,8 +318,6 @@ export default function FundsPage() {
         return changeSortType === 'asc' ? valA - valB : valB - valA;
       });
     }
-    // 当两个排序类型都为 none 时，不应用任何排序，保持原始顺序
-    // 星标置顶
     list.sort((a, b) => (b.isStarred ? 1 : 0) - (a.isStarred ? 1 : 0));
     return list;
   })();
@@ -341,6 +328,9 @@ export default function FundsPage() {
     { label: "资产", icon: "account_balance_wallet", href: "/portfolio" },
     { label: "我的", icon: "person", href: "/profile" },
   ];
+
+  // 分离标签：全部单独处理，其他标签过滤出来
+  const scrollableTags = tags.filter(t => t !== "全部");
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[430px] mx-auto overflow-x-hidden shadow-2xl bg-background-light dark:bg-background-dark font-display text-white">
@@ -367,88 +357,102 @@ export default function FundsPage() {
         </div>
       </header>
       
-      {/* Tabs */}
-      <div className="px-4 border-b border-white/5 relative">
-        {/* 左侧阴影 */}
-        <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background-light dark:from-background-dark to-transparent z-10 pointer-events-none"></div>
-        {/* 右侧阴影 */}
-        <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background-light dark:from-background-dark to-transparent z-10 pointer-events-none"></div>
+      {/* --- 重构后的 Tabs 区域 --- */}
+      <div className="relative z-40 w-full flex items-center h-[52px] border-b border-white/5 bg-background-light dark:bg-background-dark">
         
-        <div className="flex items-center justify-between overflow-x-auto no-scrollbar py-4">
-          <div className="flex gap-6">
-            {tags.map((tab) => {
-              // 计算每个标签下的基金数量
-              const count = tab === "全部" 
-                ? funds.length 
-                : funds.filter(fund => fund.tags.includes(tab)).length;
-              
-              return (
-                <a
-                  key={tab}
-                  className={`flex flex-col items-center justify-center border-b-2 pb-3 pt-0 shrink-0 transition-colors ${
-                    tab === activeTag
-                      ? "border-primary text-white"
-                      : "border-transparent text-slate-400 hover:text-white"
-                  }`}
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setActiveTag(tab);
-                  }}
-                >
-                  <p className={`text-sm ${tab === activeTag ? "font-bold" : "font-medium"}`}>
-                    {tab} ({count})
-                  </p>
-                </a>
-              );
-            })}
-          </div>
-          <div className="flex items-center gap-4 shrink-0 ml-4">
+        {/* 1. 左侧固定：全部 */}
+        <div className="relative z-20 h-full flex items-center justify-center px-4 bg-background-light dark:bg-background-dark shadow-[4px_0_12px_rgba(0,0,0,0.1)]">
+           <a
+              className={`flex flex-col items-center justify-center h-full border-b-2 transition-colors ${
+                activeTag === "全部"
+                  ? "border-primary text-white"
+                  : "border-transparent text-slate-400 hover:text-white"
+              }`}
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveTag("全部");
+              }}
+            >
+              <p className={`text-sm ${activeTag === "全部" ? "font-bold" : "font-medium"}`}>
+                全部 ({funds.length})
+              </p>
+            </a>
+        </div>
+
+        {/* 2. 中间滚动：其他标签 (转盘效果) */}
+        <div className="flex-1 h-full relative overflow-hidden group">
+            {/* 左侧渐变遮罩 (Simulate depth) */}
+            <div className="absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-background-light dark:from-background-dark to-transparent z-10 pointer-events-none" />
+            
+            {/* 滚动容器 */}
+            <div className="h-full overflow-x-auto no-scrollbar flex items-center pl-2 pr-2 gap-6">
+                {scrollableTags.map((tab) => {
+                  const count = funds.filter(fund => fund.tags.includes(tab)).length;
+                  return (
+                    <a
+                      key={tab}
+                      className={`flex flex-col items-center justify-center h-full border-b-2 shrink-0 transition-colors px-1 whitespace-nowrap ${
+                        tab === activeTag
+                          ? "border-primary text-white"
+                          : "border-transparent text-slate-400 hover:text-white"
+                      }`}
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setActiveTag(tab);
+                      }}
+                    >
+                      <p className={`text-sm ${tab === activeTag ? "font-bold" : "font-medium"}`}>
+                        {tab} ({count})
+                      </p>
+                    </a>
+                  );
+                })}
+                {/* 占位符，防止最后一个标签被右侧遮罩挡住 */}
+                <div className="w-2 shrink-0"></div>
+            </div>
+
+            {/* 右侧渐变遮罩 */}
+            <div className="absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-background-light dark:from-background-dark to-transparent z-10 pointer-events-none" />
+        </div>
+
+        {/* 3. 右侧固定：操作按钮 */}
+        <div className="relative z-20 h-full flex items-center gap-2 pl-2 pr-4 bg-background-light dark:bg-background-dark shadow-[-4px_0_12px_rgba(0,0,0,0.1)]">
             <button 
-              className="text-slate-500 hover:text-white flex items-center justify-center h-full"
+              className="text-slate-500 hover:text-white flex items-center justify-center size-8 rounded-full hover:bg-white/5 transition-colors"
               onClick={() => setIsTagModalOpen(true)}
             >
-              <Icon name="label" className="text-sm cursor-pointer" />
+              <Icon name="label" className="text-sm" />
             </button>
-            <button 
-              className={`${nameSortType !== 'none' ? 'text-white' : 'text-slate-500'} flex items-center justify-center h-full`}
-              onClick={() => {
-                setNameSortType(prev => {
-                  if (prev === 'none') {
-                    setSortBy('name');
-                    return 'asc';
-                  }
-                  if (prev === 'asc') {
-                    setSortBy('name');
-                    return 'desc';
-                  }
-                  return 'none';
-                });
-                setChangeSortType('none');
-              }}
-            >
-              <Icon name={nameSortType === 'asc' ? "arrow_upward" : nameSortType === 'desc' ? "arrow_downward" : "sort_by_alpha"} className="text-sm cursor-pointer" />
-            </button>
-            <button 
-              className={`${changeSortType !== 'none' ? 'text-white' : 'text-slate-500'} flex items-center justify-center h-full`}
-              onClick={() => {
-                setChangeSortType(prev => {
-                  if (prev === 'none') {
-                    setSortBy('change');
-                    return 'asc';
-                  }
-                  if (prev === 'asc') {
-                    setSortBy('change');
-                    return 'desc';
-                  }
-                  return 'none';
-                });
-                setNameSortType('none');
-              }}
-            >
-              <Icon name={changeSortType === 'asc' ? "arrow_upward" : changeSortType === 'desc' ? "arrow_downward" : "sort"} className="text-sm cursor-pointer" />
-            </button>
-          </div>
+            <div className="flex flex-col gap-0.5">
+                <button 
+                className={`${nameSortType !== 'none' ? 'text-primary' : 'text-slate-500'} flex items-center justify-center size-4 hover:text-white`}
+                onClick={() => {
+                    setNameSortType(prev => {
+                    if (prev === 'none') { setSortBy('name'); return 'asc'; }
+                    if (prev === 'asc') { setSortBy('name'); return 'desc'; }
+                    return 'none';
+                    });
+                    setChangeSortType('none');
+                }}
+                >
+                <Icon name={nameSortType === 'asc' ? "arrow_drop_up" : nameSortType === 'desc' ? "arrow_drop_down" : "sort_by_alpha"} className="text-[10px]" />
+                </button>
+                <button 
+                className={`${changeSortType !== 'none' ? 'text-primary' : 'text-slate-500'} flex items-center justify-center size-4 hover:text-white`}
+                onClick={() => {
+                    setChangeSortType(prev => {
+                    if (prev === 'none') { setSortBy('change'); return 'asc'; }
+                    if (prev === 'asc') { setSortBy('change'); return 'desc'; }
+                    return 'none';
+                    });
+                    setNameSortType('none');
+                }}
+                >
+                <Icon name={changeSortType === 'asc' ? "arrow_drop_up" : changeSortType === 'desc' ? "arrow_drop_down" : "sort"} className="text-[10px]" />
+                </button>
+            </div>
         </div>
       </div>
 
@@ -460,58 +464,41 @@ export default function FundsPage() {
           {processedFunds.length > 0 ? (
             processedFunds.map((fund) => {
               const isUp = parseFloat(fund.gszzl) >= 0;
-              // 格式化时间，如果包含日期则只显示时间，否则显示全部
               const displayTime = fund.gztime.includes(" ") ? fund.gztime.split(" ")[1] : fund.gztime;
               
-              // 创建一个FundCard组件来处理滑动功能
               const FundCard = ({ fund, isUp, displayTime }: { fund: Fund, isUp: boolean, displayTime: string }) => {
                 const [swipeOffset, setSwipeOffset] = useState(0);
                 const [isSwiping, setIsSwiping] = useState(false);
-                
-                // 存储触摸开始位置
                 const [touchStartX, setTouchStartX] = useState(0);
                 
-                // 处理触摸开始
                 const handleTouchStart = (e: React.TouchEvent) => {
                   setIsSwiping(true);
                   setTouchStartX(e.touches[0].clientX);
                 };
                 
-                // 处理触摸移动
                 const handleTouchMove = (e: React.TouchEvent) => {
                   if (!isSwiping) return;
-                  
-                  const touch = e.touches[0];
-                  const currentX = touch.clientX;
+                  const currentX = e.touches[0].clientX;
                   const diffX = currentX - touchStartX;
-                  
-                  // 限制滑动范围
                   const newOffset = Math.max(-160, Math.min(160, diffX));
                   setSwipeOffset(newOffset);
                 };
                 
-                // 处理触摸结束
                 const handleTouchEnd = (e: React.TouchEvent) => {
                   setIsSwiping(false);
-                  
-                  // 根据滑动距离决定是否显示操作按钮
                   if (swipeOffset < -80) {
-                    setSwipeOffset(-160); // 显示操作按钮
+                    setSwipeOffset(-160); 
                   } else if (swipeOffset > 80) {
-                    // 右滑添加到自选
                     setFunds(prev => prev.map(f => {
                       if (f.fundcode === fund.fundcode) {
                         const has自选Tag = f.tags.includes("自选");
-                        return {
-                          ...f,
-                          tags: has自选Tag ? f.tags : [...f.tags, "自选"]
-                        };
+                        return { ...f, tags: has自选Tag ? f.tags : [...f.tags, "自选"] };
                       }
                       return f;
                     }));
                     setSwipeOffset(0);
                   } else {
-                    setSwipeOffset(0); // 恢复原位
+                    setSwipeOffset(0);
                   }
                 };
                 
@@ -527,7 +514,6 @@ export default function FundsPage() {
                       style={{ transform: `translateX(${swipeOffset}px)`, transition: 'transform 0.2s ease-in-out' }}
                       variant="light"
                     >
-                       {/* 装饰背景，根据涨跌变化颜色 */}
                        <div className={`absolute -right-4 -top-4 w-16 h-16 rounded-full blur-xl opacity-10 ${isUp ? 'bg-gain-red' : 'bg-loss-green'} pointer-events-none`}></div>
 
                       <div className="flex items-center gap-3 z-10">
@@ -545,9 +531,8 @@ export default function FundsPage() {
                                 {fund.gsz}
                             </p>
                             <p className="text-[10px] text-slate-600 font-mono flex items-center">
-                                更新时间: {displayTime}
+                                更新: {displayTime}
                             </p>
-                            {/* 如果使用了真实净值，显示一个小标记 */}
                             {fund.hasReplace && (
                                 <p className="text-[9px] px-1 bg-primary/20 text-primary rounded border border-primary/30 flex items-center">实</p>
                             )}
@@ -561,19 +546,14 @@ export default function FundsPage() {
                         </p>
                       </div>
                     </GlassCard>
-                    {/* 左滑操作按钮 */}
                     <div className="absolute top-0 right-0 bottom-0 flex items-center gap-2 p-4 z-0 rounded-xl bg-background-light dark:bg-background-dark">
                       {activeTag !== "全部" && fund.tags.includes(activeTag) ? (
                         <button 
                           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold"
                           onClick={() => {
-                            // 从当前标签移除
                             setFunds(prev => prev.map(f => {
                               if (f.fundcode === fund.fundcode) {
-                                return {
-                                  ...f,
-                                  tags: f.tags.filter(tag => tag !== activeTag)
-                                };
+                                return { ...f, tags: f.tags.filter(tag => tag !== activeTag) };
                               }
                               return f;
                             }));
@@ -585,10 +565,7 @@ export default function FundsPage() {
                       ) : (
                         <button 
                           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold"
-                          onClick={() => {
-                            // 操作按钮功能
-                            setSwipeOffset(0);
-                          }}
+                          onClick={() => setSwipeOffset(0)}
                         >
                           操作
                         </button>
@@ -596,7 +573,6 @@ export default function FundsPage() {
                       <button 
                         className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-bold"
                         onClick={() => {
-                          // 删除基金
                           const newFundList = fundList.filter(code => code !== fund.fundcode);
                           setFundList(newFundList);
                           fundListRef.current = newFundList;
@@ -613,7 +589,6 @@ export default function FundsPage() {
               return <FundCard key={fund.fundcode} fund={fund} isUp={isUp} displayTime={displayTime} />;
             })
           ) : (
-            // 无数据状态
             <button 
               className="w-full relative overflow-hidden glass-card rounded-xl p-6 border-dashed border-primary/40 flex flex-col items-center justify-center gap-2 group hover:bg-primary/5 transition-all"
               onClick={() => setIsModalOpen(true)}
@@ -626,7 +601,6 @@ export default function FundsPage() {
           )}
         </div>
 
-        {/* Add Fund Button Card - 如果有数据也显示底部添加按钮 */}
         {processedFunds.length > 0 && (
           <button 
             className="w-full relative overflow-hidden glass-card rounded-xl p-4 border-dashed border-white/10 flex flex-row items-center justify-center gap-2 group hover:bg-white/5 transition-all mt-4"
@@ -640,7 +614,6 @@ export default function FundsPage() {
 
       <BottomNav items={navItems} />
 
-      {/* 添加基金模态框 */}
       <AddFundModal 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
@@ -649,7 +622,6 @@ export default function FundsPage() {
         activeTag={activeTag}
       />
 
-      {/* 标签管理模态框 */}
       <TagManagementModal 
         isOpen={isTagModalOpen} 
         onClose={() => setIsTagModalOpen(false)} 
