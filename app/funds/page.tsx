@@ -569,8 +569,8 @@ export default function FundsPage() {
       <AddFundModal 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
-        existingTags={tags.filter(tag => tag !== "全部")}
         onSave={handleSaveFund}
+        existingFunds={funds}
       />
     </div>
   );
