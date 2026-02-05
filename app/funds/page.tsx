@@ -32,7 +32,9 @@ export default function FundsPage() {
   const [funds, setFunds] = useState<Fund[]>([]);
   const [tags, setTags] = useState<string[]>(["全部", "消费", "科技", "医药"]);
   const [activeTag, setActiveTag] = useState("全部");
-  const [sortType, setSortType] = useState<'none' | 'asc' | 'desc'>('none');
+  const [nameSortType, setNameSortType] = useState<'none' | 'asc' | 'desc'>('none');
+  const [changeSortType, setChangeSortType] = useState<'none' | 'asc' | 'desc'>('none');
+  const [sortBy, setSortBy] = useState<'name' | 'change'>('change');
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   // 默认基金列表 (保留你原有的默认值)
@@ -253,13 +255,19 @@ export default function FundsPage() {
       list = list.filter(f => f.tags.includes(activeTag));
     }
     // 排序
-    if (sortType !== 'none') {
+    if (sortBy === 'name' && nameSortType !== 'none') {
+      list.sort((a, b) => {
+        const nameA = a.name.localeCompare(b.name);
+        return nameSortType === 'asc' ? nameA : -nameA;
+      });
+    } else if (sortBy === 'change' && changeSortType !== 'none') {
       list.sort((a, b) => {
         const valA = parseFloat(a.gszzl);
         const valB = parseFloat(b.gszzl);
-        return sortType === 'asc' ? valA - valB : valB - valA;
+        return changeSortType === 'asc' ? valA - valB : valB - valA;
       });
     }
+    // 当两个排序类型都为 none 时，不应用任何排序，保持原始顺序
     // 星标置顶
     list.sort((a, b) => (b.isStarred ? 1 : 0) - (a.isStarred ? 1 : 0));
     return list;
@@ -296,40 +304,73 @@ export default function FundsPage() {
       
       {/* Tabs */}
       <div className="px-4 border-b border-white/5">
-        <div className="flex gap-6 overflow-x-auto no-scrollbar">
-          {tags.map((tab) => (
-            <a
-              key={tab}
-              className={`flex flex-col items-center justify-center border-b-2 pb-3 pt-4 shrink-0 transition-colors ${
-                tab === activeTag
-                  ? "border-primary text-white"
-                  : "border-transparent text-slate-400 hover:text-white"
-              }`}
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                setActiveTag(tab);
+        <div className="flex items-center justify-between overflow-x-auto no-scrollbar">
+          <div className="flex gap-6">
+            {tags.map((tab) => (
+              <a
+                key={tab}
+                className={`flex flex-col items-center justify-center border-b-2 pb-3 pt-4 shrink-0 transition-colors ${
+                  tab === activeTag
+                    ? "border-primary text-white"
+                    : "border-transparent text-slate-400 hover:text-white"
+                }`}
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setActiveTag(tab);
+                }}
+              >
+                <p className={`text-sm ${tab === activeTag ? "font-bold" : "font-medium"}`}>
+                  {tab}
+                </p>
+              </a>
+            ))}
+          </div>
+          <div className="flex items-center gap-4 shrink-0 ml-4">
+            <button 
+              className={`${nameSortType !== 'none' ? 'text-white' : 'text-slate-500'}`}
+              onClick={() => {
+                setNameSortType(prev => {
+                  if (prev === 'none') {
+                    setSortBy('name');
+                    return 'asc';
+                  }
+                  if (prev === 'asc') {
+                    setSortBy('name');
+                    return 'desc';
+                  }
+                  return 'none';
+                });
+                setChangeSortType('none');
               }}
             >
-              <p className={`text-sm ${tab === activeTag ? "font-bold" : "font-medium"}`}>
-                {tab}
-              </p>
-            </a>
-          ))}
+              <Icon name={nameSortType === 'asc' ? "arrow_upward" : nameSortType === 'desc' ? "arrow_downward" : "sort_by_alpha"} className="text-sm cursor-pointer" />
+            </button>
+            <button 
+              className={`${changeSortType !== 'none' ? 'text-white' : 'text-slate-500'}`}
+              onClick={() => {
+                setChangeSortType(prev => {
+                  if (prev === 'none') {
+                    setSortBy('change');
+                    return 'asc';
+                  }
+                  if (prev === 'asc') {
+                    setSortBy('change');
+                    return 'desc';
+                  }
+                  return 'none';
+                });
+                setNameSortType('none');
+              }}
+            >
+              <Icon name={changeSortType === 'asc' ? "arrow_upward" : changeSortType === 'desc' ? "arrow_downward" : "sort"} className="text-sm cursor-pointer" />
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Main Content */}
       <main className="flex-1 pb-24 p-4 space-y-3">
-        {/* Section Header */}
-        <div className="flex items-center justify-between px-1 py-2">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-            基金列表 ({processedFunds.length})
-          </span>
-          <button onClick={() => setSortType(prev => prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none')}>
-            <Icon name={sortType === 'asc' ? "arrow_upward" : sortType === 'desc' ? "arrow_downward" : "sort"} className="text-slate-500 text-sm cursor-pointer" />
-          </button>
-        </div>
 
         {/* Fund List Items */}
         <div className="space-y-3">
@@ -360,26 +401,19 @@ export default function FundsPage() {
                       />
                     </button>
 
-                    <div className="flex flex-col">
-                      <div className="flex items-center gap-2">
-                        <p className="text-white text-base font-semibold line-clamp-1 max-w-[140px]">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="text-white text-sm font-bold truncate max-w-[180px]">
                             {fund.name}
-                        </p>
-                        {/* 如果使用了真实净值，显示一个小标记 */}
-                        {fund.hasReplace && (
-                            <span className="text-[9px] px-1 bg-primary/20 text-primary rounded border border-primary/30">实</span>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <p className="text-slate-400 text-sm font-medium font-mono tracking-tight bg-slate-800/50 px-1 rounded">
+                        </h4>
+                        <span className="text-[#92a4c9] text-[10px] font-medium">
                             {fund.fundcode}
-                        </p>
-                        {/* 显示标签 */}
-                        {fund.tags.find(t => t !== "全部") && (
-                            <span className="text-xs text-slate-500">{fund.tags.find(t => t !== "全部")}</span>
-                        )}
+                        </span>
                       </div>
+                      {/* 如果使用了真实净值，显示一个小标记 */}
+                      {fund.hasReplace && (
+                          <span className="text-[9px] px-1 bg-primary/20 text-primary rounded border border-primary/30">实</span>
+                      )}
                     </div>
                   </div>
 
@@ -387,13 +421,9 @@ export default function FundsPage() {
                     <p className={`text-sm font-bold font-mono ${isUp ? "text-gain-red" : "text-loss-green"}`}>
                         {fund.gsz}
                     </p>
-                    <div className={`px-3 py-1 rounded-lg text-sm font-bold min-w-[70px] text-center font-mono ${
-                      isUp
-                        ? "bg-gain-red/20 text-gain-red"
-                        : "bg-loss-green/20 text-loss-green"
-                    }`}>
+                    <p className={`text-xs font-bold font-display ${isUp ? "text-gain-red" : "text-loss-green"}`}>
                       {isUp ? "+" : ""}{fund.gszzl}%
-                    </div>
+                    </p>
                     <p className="text-[10px] text-slate-600 font-mono scale-90 origin-right">
                         {displayTime}
                     </p>
