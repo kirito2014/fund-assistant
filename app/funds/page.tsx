@@ -87,6 +87,7 @@ export default function FundsPage() {
   ];
 
   // 获取基金数据
+  // 获取基金数据
   const getData = async () => {
     if (fundList.length === 0) {
       setLoading(false);
@@ -96,63 +97,55 @@ export default function FundsPage() {
     try {
       setLoading(true);
       const codes = fundList.join(",");
-      // 生成或获取 deviceId (保持原有逻辑)
+      // 保持 deviceId 逻辑不变...
       const userId = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
         var r = (Math.random() * 16) | 0,
           v = c == "x" ? r : (r & 0x3) | 0x8;
         return v.toString(16);
       });
       
-      // 【修改点】不再直接请求 eastmoney，而是请求我们刚写的本地 API
-      // 这里的路径对应 app/api/fund/route.ts
       const apiUrl = `/api/fund?deviceid=${userId}&Fcodes=${codes}`;
       
-      // 发起请求
       const response = await fetch(apiUrl);
-      
-      if (!response.ok) throw new Error("Network response was not ok");
-      
       const res = await response.json();
-      console.log('API Response:', res);
+      
+      // 【修改点】增加对错误信息的判断
       if (res && res.Datas) {
         const dataList: Fund[] = res.Datas.map((val: any) => {
-          // 【关键修改】从 Ref 中查找现有基金，确保标签不丢失
-          // 即使闭包中的 funds 是旧的，fundsRef.current 也是最新的
-          const existingFund = fundsRef.current.find(f => f.fundcode === val.FCODE);
-          const fundTags = existingFund && existingFund.tags.length > 0 ? existingFund.tags : ["全部"];
-          const isStarred = existingFund ? existingFund.isStarred : false;
+           // ... 保持原有的 map 逻辑 ...
+           const existingFund = fundsRef.current.find(f => f.fundcode === val.FCODE);
+           const fundTags = existingFund && existingFund.tags.length > 0 ? existingFund.tags : ["全部"];
+           const isStarred = existingFund ? existingFund.isStarred : false;
 
-          let data: Fund = {
+           let data: Fund = {
             fundcode: val.FCODE,
             name: val.SHORTNAME,
             dwjz: val.NAV == null || isNaN(val.NAV) ? "--" : val.NAV.toString(),
             gsz: val.GSZ == null || isNaN(val.GSZ) ? "--" : val.GSZ.toString(),
             gszzl: val.GSZZL == null || isNaN(val.GSZZL) ? "0.00" : val.GSZZL.toString(),
             gztime: val.GZTIME || "--",
-            tags: fundTags, // 保留标签
-            isStarred: isStarred // 保留星标状态
+            tags: fundTags,
+            isStarred: isStarred
           };
           
-          // 如果当前日期等于估值时间日期，说明已收盘更新净值，使用真实净值替换估值
           if (val.PDATE !== "--" && val.GZTIME && val.PDATE === val.GZTIME.substr(0, 10)) {
             data.gsz = val.NAV ? val.NAV.toString() : data.gsz;
             data.gszzl = val.NAVCHGRT ? val.NAVCHGRT.toString() : "0.00";
             data.hasReplace = true;
           }
-          
           return data;
         });
         
         setFunds(dataList);
       } else {
-        console.error('API 返回数据格式错误:', res);
-        // 不管是否有数据，都使用模拟数据，确保页面能够正常显示
-        useMockData();
+        // 如果 API 返回了错误信息（如“网络繁忙”），打印日志但不清空列表
+        console.warn("API未返回有效数据:", res);
+        if (res.Message) {
+            console.error("API Error Message:", res.Message);
+        }
       }
     } catch (error) {
       console.error('获取基金数据失败:', error);
-      // 不管是否有数据，都使用模拟数据，确保页面能够正常显示
-      useMockData();
     } finally {
       setLoading(false);
     }
