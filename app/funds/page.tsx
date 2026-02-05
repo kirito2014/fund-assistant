@@ -390,42 +390,33 @@ export default function FundsPage() {
                    <div className={`absolute -right-4 -top-4 w-20 h-20 rounded-full blur-2xl opacity-10 ${isUp ? 'bg-gain-red' : 'bg-loss-green'}`}></div>
 
                   <div className="flex items-center gap-3 z-10">
-                     {/* 星标按钮 */}
-                    <button 
-                       onClick={(e) => { e.stopPropagation(); handleToggleStar(fund.fundcode); }}
-                       className="p-1 -ml-2 rounded-full hover:bg-white/10 transition-colors"
-                    >
-                      <Icon 
-                        name={fund.isStarred ? "star" : "star_outline"} 
-                        className={`text-lg ${fund.isStarred ? "text-yellow-400 fill-current" : "text-slate-600"}`} 
-                      />
-                    </button>
-
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <h4 className="text-white text-sm font-bold truncate max-w-[180px]">
                             {fund.name}
                         </h4>
-                        <span className="text-[#92a4c9] text-[10px] font-medium">
+                        <p className="text-[#92a4c9] text-[10px] font-medium">
                             {fund.fundcode}
-                        </span>
+                        </p>
                       </div>
-                      {/* 如果使用了真实净值，显示一个小标记 */}
-                      {fund.hasReplace && (
-                          <span className="text-[9px] px-1 bg-primary/20 text-primary rounded border border-primary/30">实</span>
-                      )}
+                      <div className="flex items-center gap-4">
+                        <p className="text-sm font-bold font-display text-white flex items-center">
+                            {fund.gsz}
+                        </p>
+                        <p className="text-[10px] text-slate-600 font-mono flex items-center">
+                            更新时间: {displayTime}
+                        </p>
+                        {/* 如果使用了真实净值，显示一个小标记 */}
+                        {fund.hasReplace && (
+                            <p className="text-[9px] px-1 bg-primary/20 text-primary rounded border border-primary/30 flex items-center">实</p>
+                        )}
+                      </div>
                     </div>
                   </div>
 
                   <div className="flex flex-col items-end gap-1 z-10">
-                    <p className={`text-sm font-bold font-mono ${isUp ? "text-gain-red" : "text-loss-green"}`}>
-                        {fund.gsz}
-                    </p>
-                    <p className={`text-xs font-bold font-display ${isUp ? "text-gain-red" : "text-loss-green"}`}>
+                    <p className={`text-sm font-bold font-display ${isUp ? "text-gain-red" : "text-loss-green"}`}>
                       {isUp ? "+" : ""}{fund.gszzl}%
-                    </p>
-                    <p className="text-[10px] text-slate-600 font-mono scale-90 origin-right">
-                        {displayTime}
                     </p>
                   </div>
                 </GlassCard>
