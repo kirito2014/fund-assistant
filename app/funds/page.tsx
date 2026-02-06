@@ -7,18 +7,19 @@ import { BottomNav } from "@/components/BottomNav";
 import AddFundModal from "@/components/AddFundModal";
 import TagManagementModal from "@/components/TagManagementModal";
 import AddResultModal from "@/components/AddResultModal";
+import FundDetailModal from "@/components/FundDetailModal"; // [新增引用]
 
 // --- 类型定义 ---
 interface Fund {
   fundcode: string;
   name: string;
-  dwjz: string;    // 单位净值 (昨收)
-  gsz: string;     // 估算净值 (实时)
-  gszzl: string;   // 估算涨跌幅
-  gztime: string;  // 估值时间
-  isStarred?: boolean; // 特别关注
-  tags: string[];      // 标签分组
-  hasReplace?: boolean; // 是否已使用真实净值替换估值 (盘后模式)
+  dwjz: string;    
+  gsz: string;     
+  gszzl: string;   
+  gztime: string;  
+  isStarred?: boolean; 
+  tags: string[];      
+  hasReplace?: boolean; 
 }
 
 // 扩展 Window 接口以支持 JSONP 回调和腾讯全局变量
@@ -45,6 +46,13 @@ export default function FundsPage() {
   const [addFailures, setAddFailures] = useState<{ code: string; name: string }[]>([]);
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   
+  // [新增] 详情模态框状态
+  const [detailModal, setDetailModal] = useState<{ isOpen: boolean; code: string; name: string }>({
+    isOpen: false,
+    code: '',
+    name: ''
+  });
+  
   // 默认基金列表
   const [fundList, setFundList] = useState<string[]>(["001618", "001630", "008887", "005827", "161725"]);
 
@@ -57,19 +65,19 @@ export default function FundsPage() {
 
   // --- 持久化逻辑 (修复版：仅在初始化完成后保存) ---
   useEffect(() => {
-    if (!isInitialized) return; // 如果还没加载完，不要保存
+    if (!isInitialized) return; 
     fundsRef.current = funds;
     if (funds.length > 0) localStorage.setItem('savedFunds', JSON.stringify(funds));
   }, [funds, isInitialized]);
 
   useEffect(() => {
-    if (!isInitialized) return; // 如果还没加载完，不要保存
+    if (!isInitialized) return; 
     fundListRef.current = fundList;
     localStorage.setItem('savedFundList', JSON.stringify(fundList));
   }, [fundList, isInitialized]);
 
   useEffect(() => {
-    if (!isInitialized) return; // 如果还没加载完，不要保存
+    if (!isInitialized) return; 
     localStorage.setItem('savedTags', JSON.stringify(tags));
   }, [tags, isInitialized]);
 
@@ -79,7 +87,6 @@ export default function FundsPage() {
     const savedFundList = localStorage.getItem('savedFundList');
     const savedFunds = localStorage.getItem('savedFunds');
 
-    // 1. 恢复标签结构
     if (savedTags) {
       try {
         setTags(JSON.parse(savedTags));
@@ -88,7 +95,6 @@ export default function FundsPage() {
       }
     }
     
-    // 2. 恢复基金列表代码
     if (savedFundList) {
       try {
         const list = JSON.parse(savedFundList);
@@ -99,7 +105,6 @@ export default function FundsPage() {
 
     let codesToRefresh: string[] = [];
 
-    // 3. 数据分离加载策略
     if (savedFunds) {
        try {
          const parsedFunds: Fund[] = JSON.parse(savedFunds);
@@ -112,10 +117,8 @@ export default function FundsPage() {
        codesToRefresh = fundList;
     }
     
-    // 标记初始化完成，允许后续的 Save 操作
     setIsInitialized(true);
 
-    // 4. 立即触发网络刷新
     setTimeout(() => {
         refreshAllFunds(codesToRefresh);
     }, 0);
@@ -223,7 +226,6 @@ export default function FundsPage() {
     ));
   };
 
-  // 关键修复：重命名参数 selectedTags 避免与 state tags 冲突
   const handleSaveFund = (newFund: any, selectedTags: string[] = ["全部"]) => {
     const code = newFund.fundcode || newFund; 
     const isTagAdd = typeof newFund === 'string';
@@ -245,11 +247,11 @@ export default function FundsPage() {
           hasReplace: newFund.hasReplace
       }]);
 
-      // 无论是否有名称，都触发一次刷新获取最新数据
-      setTimeout(() => refreshAllFunds([code]), 100);
+      if (!newFund.name) {
+         setTimeout(() => refreshAllFunds([code]), 100);
+      }
     }
     
-    // 更新基金自身的标签
     setFunds(prev => prev.map(f => {
         if (f.fundcode === code) {
             if (isTagAdd) {
@@ -268,10 +270,8 @@ export default function FundsPage() {
 
     setIsModalOpen(false);
 
-    // 更新顶部标签栏 (修复变量作用域问题)
     if (!isTagAdd) {
       setTags(prevTags => {
-        // 在这里，prevTags 是当前的状态，selectedTags 是用户新选的
         const newTagsToAdd = selectedTags.filter(tag => !prevTags.includes(tag));
         if (newTagsToAdd.length > 0) {
           return [...prevTags, ...newTagsToAdd];
@@ -506,6 +506,10 @@ export default function FundsPage() {
                     onTouchStart={handleTouchStart}
                     onTouchMove={handleTouchMove}
                     onTouchEnd={handleTouchEnd}
+                    onClick={() => {
+                        // [新增] 点击卡片任意位置打开详情
+                        setDetailModal({ isOpen: true, code: fund.fundcode, name: fund.name });
+                    }}
                   >
                     <GlassCard
                       className="rounded-xl p-4 flex items-center justify-between hover:bg-white/[0.05] transition-all group relative z-10 bg-background-light dark:bg-background-dark"
@@ -548,7 +552,8 @@ export default function FundsPage() {
                       {activeTag !== "全部" && fund.tags.includes(activeTag) ? (
                         <button 
                           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setFunds(prev => prev.map(f => {
                               if (f.fundcode === fund.fundcode) {
                                 return { ...f, tags: f.tags.filter(tag => tag !== activeTag) };
@@ -563,14 +568,20 @@ export default function FundsPage() {
                       ) : (
                         <button 
                           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold"
-                          onClick={() => setSwipeOffset(0)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // [新增] 详情点击事件
+                            setDetailModal({ isOpen: true, code: fund.fundcode, name: fund.name });
+                            setSwipeOffset(0);
+                          }}
                         >
                           详情
                         </button>
                       )}
                       <button 
                         className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-bold"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           const newFundList = fundList.filter(code => code !== fund.fundcode);
                           setFundList(newFundList);
                           fundListRef.current = newFundList;
@@ -635,6 +646,14 @@ export default function FundsPage() {
         isOpen={isResultModalOpen}
         onClose={() => setIsResultModalOpen(false)}
         failures={addFailures}
+      />
+      
+      {/* [新增] 详情模态框 */}
+      <FundDetailModal 
+        isOpen={detailModal.isOpen}
+        onClose={() => setDetailModal(prev => ({ ...prev, isOpen: false }))}
+        fundCode={detailModal.code}
+        fundName={detailModal.name}
       />
     </div>
   );
