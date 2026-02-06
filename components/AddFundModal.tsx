@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Icon } from "./ui/Icon";
 import axios from "axios";
 
-export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = [], activeTag = "全部" }: any) {
+export default function AddFundModal({ isOpen, onClose, onSave, onFailures, existingFunds = [], activeTag = "全部" }: any) {
   const [searchKey, setSearchKey] = useState("");
   const [results, setResults] = useState([]);
   const [selectedFunds, setSelectedFunds] = useState<any[]>([]);
@@ -18,7 +18,7 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
     }
   }, [isOpen]);
 
-  // 搜索接口参考 App.vue 的 remoteMethod
+  // 搜索接口
   useEffect(() => {
     if (searchKey.length < 2) return;
     const timer = setTimeout(async () => {
@@ -36,7 +36,7 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
     return existingFunds.some((fund: any) => fund.fundcode === code);
   };
 
-  // 检查基金是否已在待添加列表中
+  // 检查基金是否已在待添加列表
   const isFundSelected = (code: string) => {
     return selectedFunds.some((fund: any) => fund.CODE === code || fund.fundcode === code);
   };
@@ -49,14 +49,16 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
   // 添加基金到待添加列表
   const handleAddFund = (fund: any) => {
     if (selectedFunds.length >= 10) return; // 最多添加10个基金
-    if (!isFundSelected(fund.CODE || fund.fundcode)) {
+    // 兼容 CODE 和 fundcode 字段
+    const code = fund.CODE || fund.fundcode;
+    if (!isFundSelected(code)) {
       setSelectedFunds(prev => [...prev, fund]);
     }
   };
 
   // 从待添加列表中移除基金
   const handleRemoveFund = (code: string) => {
-    setSelectedFunds(prev => prev.filter(fund => fund.CODE !== code && fund.fundcode !== code));
+    setSelectedFunds(prev => prev.filter(fund => (fund.CODE !== code && fund.fundcode !== code)));
   };
 
   // 批量添加基金
@@ -67,12 +69,33 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
       // 从当前标签中添加基金
       selectedFunds.forEach(fund => {
         const code = fund.CODE || fund.fundcode;
-        onSave(code, [activeTag]);
+        // 检查基金是否已经存在于现有基金列表中
+        const fundExists = existingFunds.some((fund: any) => fund.fundcode === code);
+        if (fundExists) {
+          // 如果基金已存在，只添加标签
+          onSave(code, [activeTag]);
+        } else {
+          // 如果基金不存在，先创建基金对象再添加
+          const newFund = {
+            fundcode: code,
+            name: fund.NAME || fund.name,
+            dwjz: "--",
+            gsz: "--",
+            gszzl: "0.00",
+            gztime: "--",
+            isStarred: false,
+            tags: ["全部", activeTag]
+          };
+          onSave(newFund, [activeTag]);
+        }
       });
     } else {
       // 搜索添加新基金
+      const successes: any[] = [];
+      const failures: { code: string; name: string }[] = [];
+
       try {
-        // 生成随机userId，参考App.vue中的实现
+        // 生成随机userId
         const userId = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
           var r = (Math.random() * 16) | 0,
             v = c == "x" ? r : (r & 0x3) | 0x8;
@@ -80,9 +103,14 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
         });
 
         // 批量获取基金数据
-        const fundCodes = selectedFunds.map(fund => fund.CODE).join(",");
+        // 关键修复：确保能正确获取到代码，无论是来自搜索(CODE)还是现有列表(fundcode)
+        const fundCodes = selectedFunds.map(fund => fund.CODE || fund.fundcode).join(",");
+        
+        // 注意：此 API 直接在前端调用可能会遇到 CORS 跨域问题
         const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=200&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=${userId}&Fcodes=${fundCodes}`;
         const res = await axios.get(url);
+
+        console.log('API Response:', res.data);
 
         if (res.data.Datas && res.data.Datas.length > 0) {
           const fundDataMap = new Map();
@@ -90,8 +118,10 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
             fundDataMap.set(data.FCODE, data);
           });
 
-          const fundsToAdd = selectedFunds.map(fund => {
-            const fundData = fundDataMap.get(fund.CODE);
+          selectedFunds.forEach(fund => {
+            const code = fund.CODE || fund.fundcode;
+            const fundData = fundDataMap.get(code);
+            
             if (fundData) {
               const realData = {
                 fundcode: fundData.FCODE,
@@ -112,58 +142,45 @@ export default function AddFundModal({ isOpen, onClose, onSave, existingFunds = 
                 realData.hasReplace = true;
               }
 
-              return realData;
+              successes.push(realData);
             } else {
-              // 如果API请求失败，使用模拟数据作为备份
-              return {
-                fundcode: fund.CODE,
-                name: fund.NAME,
-                dwjz: (Math.random() * 3 + 1).toFixed(4),
-                gsz: (Math.random() * 3 + 1).toFixed(4),
-                gszzl: (Math.random() * 4 - 2).toFixed(2),
-                gztime: "2026-02-05 15:00",
-                isStarred: false,
-                tags: ["全部"]
-              };
+              // API请求成功但Map里没找到（说明代码无效或已退市）
+              failures.push({ code: code, name: fund.NAME || fund.name });
             }
           });
-
-          // 逐个添加基金
-          fundsToAdd.forEach(fund => {
-            onSave(fund);
-          });
         } else {
-          // 如果API请求失败，使用模拟数据作为备份
-          selectedFunds.forEach(fund => {
-            const mockData = {
-              fundcode: fund.CODE,
-              name: fund.NAME,
-              dwjz: (Math.random() * 3 + 1).toFixed(4),
-              gsz: (Math.random() * 3 + 1).toFixed(4),
-              gszzl: (Math.random() * 4 - 2).toFixed(2),
-              gztime: "2026-02-05 15:00",
-              isStarred: false,
-              tags: ["全部"]
-            };
-            onSave(mockData);
-          });
+          // API请求成功但Datas为空（说明所有代码都无效）
+          failures.push(...selectedFunds.map(f => ({ 
+            code: f.CODE || f.fundcode, 
+            name: f.NAME || f.name 
+          })));
         }
       } catch (error) {
-        console.error('获取基金估值数据失败:', error);
-        // 如果API请求失败，使用模拟数据作为备份
+        console.warn('获取基金数据遇到网络异常(可能为跨域)，降级使用模拟数据:', error);
+        
+        // 【关键修复】恢复原项目的 Mock Data 逻辑作为兜底
+        // 只有当网络完全不通/跨域时才使用，避免功能完全瘫痪
         selectedFunds.forEach(fund => {
           const mockData = {
-            fundcode: fund.CODE,
-            name: fund.NAME,
+            fundcode: fund.CODE || fund.fundcode,
+            name: fund.NAME || fund.name,
             dwjz: (Math.random() * 3 + 1).toFixed(4),
             gsz: (Math.random() * 3 + 1).toFixed(4),
             gszzl: (Math.random() * 4 - 2).toFixed(2),
-            gztime: "2026-02-05 15:00",
+            gztime: new Date().toISOString().slice(0, 10) + " 15:00",
             isStarred: false,
             tags: ["全部"]
           };
-          onSave(mockData);
+          successes.push(mockData);
         });
+      }
+
+      // 处理结果
+      successes.forEach(fund => onSave(fund));
+      
+      // 只有明确的失败（API通了但无数据）才弹窗
+      if (failures.length > 0 && onFailures) {
+        onFailures(failures);
       }
     }
     

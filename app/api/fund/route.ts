@@ -38,12 +38,30 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
-    // console.log("Upstream API response:", data);
+    // console.log("Upstream API responded with data:", data);
     // 检查业务层面的错误
     if (data.ErrCode !== 0 && data.Message === "网络繁忙，请稍后重试！") {
        console.warn("API Anti-scraping triggered:", data);
        // 如果遇到此错误，可以尝试返回特定状态码让前端重试或显示模拟数据
     }
+    
+    // 处理获取不到数据的基金
+    if (data.Data && Array.isArray(data.Data)) {
+      const originalFundCount = data.Data.length;
+      const validFunds = data.Data.filter((fund: any) => {
+        // 检查基金数据是否完整，这里根据实际API响应结构调整判断条件
+        return fund && fund.FCODE && fund.FSNAME;
+      });
+      
+      const invalidFundsCount = originalFundCount - validFunds.length;
+      if (invalidFundsCount > 0) {
+        console.warn(`Filtered out ${invalidFundsCount} invalid funds`);
+        data.Data = validFunds;
+        // 可以在响应中添加一个字段，指示有多少基金获取失败
+        data.InvalidFundsCount = invalidFundsCount;
+      }
+    }
+    
     console.log("Upstream API response:", data);
     return NextResponse.json(data);
     

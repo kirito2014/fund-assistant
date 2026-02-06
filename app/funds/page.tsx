@@ -6,6 +6,7 @@ import { Icon } from "@/components/ui/Icon";
 import { BottomNav } from "@/components/BottomNav";
 import AddFundModal from "@/components/AddFundModal";
 import TagManagementModal from "@/components/TagManagementModal";
+import AddResultModal from "@/components/AddResultModal";
 
 // --- 类型定义 ---
 interface Fund {
@@ -39,6 +40,10 @@ export default function FundsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isTagModalOpen, setIsTagModalOpen] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
+
+  // 添加失败弹窗状态
+  const [addFailures, setAddFailures] = useState<{ code: string; name: string }[]>([]);
+  const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   
   // 默认基金列表
   const [fundList, setFundList] = useState<string[]>(["001618", "001630", "008887", "005827", "161725"]);
@@ -230,15 +235,17 @@ export default function FundsPage() {
       
       setFunds(prev => [...prev, {
           fundcode: code,
-          name: "加载中...",
-          dwjz: "--",
-          gsz: "--",
-          gszzl: "0.00",
-          gztime: "--",
+          name: newFund.name || "加载中...",
+          dwjz: newFund.dwjz || "--",
+          gsz: newFund.gsz || "--",
+          gszzl: newFund.gszzl || "0.00",
+          gztime: newFund.gztime || "--",
           tags: ["全部", ...selectedTags],
-          isStarred: false
+          isStarred: false,
+          hasReplace: newFund.hasReplace
       }]);
 
+      // 无论是否有名称，都触发一次刷新获取最新数据
       setTimeout(() => refreshAllFunds([code]), 100);
     }
     
@@ -609,6 +616,10 @@ export default function FundsPage() {
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         onSave={handleSaveFund}
+        onFailures={(failures: { code: string; name: string }[]) => {
+          setAddFailures(failures);
+          setIsResultModalOpen(true);
+        }}
         existingFunds={funds}
         activeTag={activeTag}
       />
@@ -618,6 +629,12 @@ export default function FundsPage() {
         onClose={() => setIsTagModalOpen(false)} 
         existingTags={tags}
         onSave={handleSaveTags}
+      />
+
+      <AddResultModal
+        isOpen={isResultModalOpen}
+        onClose={() => setIsResultModalOpen(false)}
+        failures={addFailures}
       />
     </div>
   );
