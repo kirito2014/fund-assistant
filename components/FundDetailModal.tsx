@@ -36,6 +36,7 @@ const RealtimeChart = ({ code }: { code: string }) => {
       // item[2] 是估值数据
       const values = list.map((item: string[]) => parseFloat(item[2]));
       
+      console.log(values);
       const minVal = Math.min(...values);
       const maxVal = Math.max(...values);
       const dwjz = parseFloat(data.Expansion.DWJZ); // 昨收
@@ -232,7 +233,9 @@ const PositionTable = ({ code }: { code: string }) => {
     axios.get(url).then(res => {
       const list = res.data.Datas || [];
       setDate(res.data.Expansion);
-      
+    axios.get(`/api/fund-position?code=${code}`).then(res => {
+      setData(res.data.Datas || []);
+    });  
       // 尝试获取实时行情(简易版)
       const secids = list.map((item: any) => {
          // 简易判断市场：6开头是沪市(1)，0/3开头是深市(0)

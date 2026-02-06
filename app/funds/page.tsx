@@ -7,19 +7,19 @@ import { BottomNav } from "@/components/BottomNav";
 import AddFundModal from "@/components/AddFundModal";
 import TagManagementModal from "@/components/TagManagementModal";
 import AddResultModal from "@/components/AddResultModal";
-import FundDetailModal from "@/components/FundDetailModal"; // [新增引用]
+import FundDetailModal from "@/components/FundDetailModal";
 
 // --- 类型定义 ---
 interface Fund {
   fundcode: string;
   name: string;
-  dwjz: string;    
-  gsz: string;     
-  gszzl: string;   
-  gztime: string;  
-  isStarred?: boolean; 
-  tags: string[];      
-  hasReplace?: boolean; 
+  dwjz: string;    // 单位净值 (昨收)
+  gsz: string;     // 估算净值 (实时)
+  gszzl: string;   // 估算涨跌幅
+  gztime: string;  // 估值时间
+  isStarred?: boolean; // 特别关注
+  tags: string[];      // 标签分组
+  hasReplace?: boolean; // 是否已使用真实净值替换估值 (盘后模式)
 }
 
 // 扩展 Window 接口以支持 JSONP 回调和腾讯全局变量
@@ -46,7 +46,7 @@ export default function FundsPage() {
   const [addFailures, setAddFailures] = useState<{ code: string; name: string }[]>([]);
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   
-  // [新增] 详情模态框状态
+  // 详情模态框状态
   const [detailModal, setDetailModal] = useState<{ isOpen: boolean; code: string; name: string }>({
     isOpen: false,
     code: '',
@@ -60,10 +60,9 @@ export default function FundsPage() {
   const fundsRef = useRef<Fund[]>([]);
   const fundListRef = useRef<string[]>([]);
 
-  // 关键修复：添加初始化标志，防止默认空数据覆盖 LocalStorage 中的旧数据
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // --- 持久化逻辑 (修复版：仅在初始化完成后保存) ---
+  // --- 持久化逻辑 ---
   useEffect(() => {
     if (!isInitialized) return; 
     fundsRef.current = funds;
@@ -81,7 +80,7 @@ export default function FundsPage() {
     localStorage.setItem('savedTags', JSON.stringify(tags));
   }, [tags, isInitialized]);
 
-  // --- 初始化加载 (升级版：结构缓存优先 + 初始化锁) ---
+  // --- 初始化加载 ---
   useEffect(() => {
     const savedTags = localStorage.getItem('savedTags');
     const savedFundList = localStorage.getItem('savedFundList');
@@ -143,6 +142,7 @@ export default function FundsPage() {
   }, []);
 
   // --- 辅助函数：获取腾讯数据并整合 ---
+  // 【修复 1】：修正腾讯接口数据索引映射，正确获取名称、净值和涨幅
   const fetchTencentData = (code: string, gzData: any) => {
     const script = document.createElement("script");
     script.src = `https://qt.gtimg.cn/q=jj${code}`;
@@ -151,10 +151,16 @@ export default function FundsPage() {
       if (tencentVar) {
         const tDataArr = tencentVar.split("~");
         if (tDataArr.length > 5) {
-          const tencentDate = tDataArr[3]; 
-          const tencentNav = tDataArr[1];  
-          const tencentChange = tDataArr[5]; 
+          const tencentName = tDataArr[1]; // 1: 名称
+          const tencentNav = tDataArr[2];  // 2: 单位净值
+          const tencentDate = tDataArr[3]; // 3: 净值日期
+          const tencentChange = tDataArr[5]; // 5: 涨跌幅
           const gzDate = gzData.jzrq; 
+
+          // 如果原名称是占位符，更新为真实名称
+          if (gzData.name === "加载中..." && tencentName) {
+            gzData.name = tencentName;
+          }
 
           if (tencentDate && (!gzDate || tencentDate >= gzDate)) {
              gzData.gsz = tencentNav;
@@ -180,10 +186,16 @@ export default function FundsPage() {
       const existingIndex = prevFunds.findIndex(f => f.fundcode === newData.fundcode);
       const existingTags = existingIndex > -1 ? prevFunds[existingIndex].tags : ["全部"];
       const existingStar = existingIndex > -1 ? prevFunds[existingIndex].isStarred : false;
+      
+      // 【修复 2】：防止“加载中...”覆盖已有真实名称
+      let finalName = newData.name;
+      if (finalName === "加载中..." && existingIndex > -1 && prevFunds[existingIndex].name !== "加载中...") {
+        finalName = prevFunds[existingIndex].name;
+      }
 
       const newFundObj: Fund = {
         fundcode: newData.fundcode,
-        name: newData.name,
+        name: finalName,
         dwjz: newData.dwjz || "--", 
         gsz: newData.gsz || newData.dwjz || "--",
         gszzl: newData.gszzl || "0.00",
@@ -212,6 +224,7 @@ export default function FundsPage() {
       script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${new Date().getTime()}`;
       script.onload = () => { document.body.removeChild(script); };
       script.onerror = () => {
+         // 东财接口失败时，降级调用腾讯接口
          fetchTencentData(code, { fundcode: code, name: "加载中...", jzrq: "" });
          if(document.body.contains(script)) document.body.removeChild(script);
       };
@@ -220,12 +233,6 @@ export default function FundsPage() {
   };
 
   // --- 交互处理 ---
-  const handleToggleStar = (code: string) => {
-    setFunds(prev => prev.map(f => 
-      f.fundcode === code ? { ...f, isStarred: !f.isStarred } : f
-    ));
-  };
-
   const handleSaveFund = (newFund: any, selectedTags: string[] = ["全部"]) => {
     const code = newFund.fundcode || newFund; 
     const isTagAdd = typeof newFund === 'string';
@@ -507,7 +514,6 @@ export default function FundsPage() {
                     onTouchMove={handleTouchMove}
                     onTouchEnd={handleTouchEnd}
                     onClick={() => {
-                        // [新增] 点击卡片任意位置打开详情
                         setDetailModal({ isOpen: true, code: fund.fundcode, name: fund.name });
                     }}
                   >
@@ -544,7 +550,8 @@ export default function FundsPage() {
 
                       <div className="flex flex-col items-end gap-1 z-10">
                         <p className={`text-sm font-bold font-display ${isUp ? "text-gain-red" : "text-loss-green"}`}>
-                          {isUp ? "+" : ""}{fund.gszzl}%
+                          {/* 【修复 3】：格式化涨跌幅为2位小数 */}
+                          {isUp ? "+" : ""}{parseFloat(fund.gszzl).toFixed(2)}%
                         </p>
                       </div>
                     </GlassCard>
@@ -570,7 +577,6 @@ export default function FundsPage() {
                           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold"
                           onClick={(e) => {
                             e.stopPropagation();
-                            // [新增] 详情点击事件
                             setDetailModal({ isOpen: true, code: fund.fundcode, name: fund.name });
                             setSwipeOffset(0);
                           }}
@@ -648,7 +654,6 @@ export default function FundsPage() {
         failures={addFailures}
       />
       
-      {/* [新增] 详情模态框 */}
       <FundDetailModal 
         isOpen={detailModal.isOpen}
         onClose={() => setDetailModal(prev => ({ ...prev, isOpen: false }))}
